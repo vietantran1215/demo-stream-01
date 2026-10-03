@@ -11,7 +11,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import HumanMessage
-from langraph.types import Command
+from langgraph.types import Command
 
 from app.agent.graph import graph
 from app.schemas import ChatRequest, ResumeRequest
@@ -132,7 +132,7 @@ async def chat(thread_id: str, body: ChatRequest) -> StreamingResponse:
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",
         },
-     )
+    )
 
 
 @app.post("/api/chat/{thread_id}/resume")
