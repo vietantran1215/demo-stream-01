@@ -56,7 +56,7 @@ HumanInTheLoopMiddleware [PAUSE]
 
 - Backend: Python 3.11+, FastAPI, LangChain 1.4.x, LangGraph 1.2.x, LangChain OpenAI
 - Frontend: React 18, TypeScript, Vite
-- Graph streaming: LangGraph Event Streaming v3 (`messages`, `custom`, interrupts)
+- Graph streaming: LangGraph Event Streaming v3 (`messages`, interrupts) + opt-in `CustomTransformer` for `get_stream_writer()` events
 - Browser transport: Server-Sent Events over `fetch()`
 - HITL persistence for the demo: LangGraph `InMemorySaver`
 - Side effect: local `backend/data/outbox.jsonl`
@@ -327,7 +327,7 @@ The backend uses LangGraph Event Streaming v3 as the runtime-facing API and adap
 2. **A graph can contain an agentic subgraph.** Only the support branch uses `create_agent`; general and summarize remain deterministic.
 3. **Skills still scope behavior.** The summarize branch loads its skill directly; the support skill becomes the support agent's system instructions.
 4. **Native message projections stream model output.** Root model calls and nested support-agent model calls are consumed from their correct Event Streaming scopes.
-5. **Custom events carry domain progress.** Skill activation and long-running tool progress use `get_stream_writer()`.
+5. **Custom events carry domain progress.** Skill activation and long-running tool progress use `get_stream_writer()`; Event Streaming v3 requires explicitly registering `CustomTransformer` before `run.custom` / `subgraph.custom` exist.
 6. **The side effect is now a real tool.** `send_support_reply` is a LangChain `@tool`, not a graph node pretending to be one.
 7. **Built-in HITL governs the risky tool call.** `HumanInTheLoopMiddleware` pauses after the model proposes the tool but before execution.
 8. **Approve/reject are middleware decisions.** Approve executes the original tool call; reject skips it and returns feedback to the agent.

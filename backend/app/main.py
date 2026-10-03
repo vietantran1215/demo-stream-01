@@ -12,6 +12,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import HumanMessage
+from langgraph.stream.transformers import CustomTransformer
 from langgraph.types import Command
 
 from app.agent.graph import graph
@@ -138,6 +139,10 @@ async def stream_graph(input_value: object, thread_id: str) -> AsyncIterator[str
             input_value,
             config=config,
             version="v3",
+            # Event Streaming v3 does not register the custom projection by
+            # default. Opt in so get_stream_writer() payloads surface on
+            # run.custom and on nested subgraph.custom handles.
+            transformers=[CustomTransformer],
         )
 
         queue: asyncio.Queue[tuple[str, object]] = asyncio.Queue()
