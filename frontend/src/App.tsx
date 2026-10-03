@@ -2,12 +2,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 
 import { resumeThread, sendMessage } from "./api";
 import MarkdownContent from "./MarkdownContent";
-import type {
-  ApprovalRequest,
-  Message,
-  RouteName,
-  StreamHandlers,
-} from "./types";
+import type { ApprovalRequest, Message, StreamHandlers } from "./types";
 
 
 const EXAMPLES = [
@@ -26,7 +21,6 @@ export default function App() {
   const [threadId, setThreadId] = useState(newThreadId);
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
-  const [nodes, setNodes] = useState<string[]>([]);
   const [approval, setApproval] = useState<ApprovalRequest | null>(null);
   const [approvalMessageId, setApprovalMessageId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -34,17 +28,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
 
-  // Runtime decision trace for the latest prompt.
-  const [activePrompt, setActivePrompt] = useState<string | null>(null);
-  const [route, setRoute] = useState<RouteName | null>(null);
-  const [expectedSkill, setExpectedSkill] = useState<string | null>(null);
-  const [loadedSkill, setLoadedSkill] = useState<string | null>(null);
-  const [skillSource, setSkillSource] = useState<string | null>(null);
-  const [skillSkippedReason, setSkillSkippedReason] = useState<string | null>(null);
-  const [trace, setTrace] = useState<string[]>([]);
-
   const messagesRef = useRef<HTMLElement | null>(null);
-  const streamStartedRef = useRef(false);
 
 
   useEffect(() => {
@@ -53,13 +37,6 @@ export default function App() {
       element.scrollTop = element.scrollHeight;
     }
   }, [messages, approval]);
-
-
-  function addTrace(entry: string): void {
-    setTrace((current) =>
-      current[current.length - 1] === entry ? current : [...current, entry],
-    );
-  }
 
 
   function updateMessage(
@@ -103,7 +80,40 @@ export default function App() {
   }
 
 
+  function insertSkillEventBefore(responseId: string, skillName: string): void {
+    setMessages((current) => {
+      const eventId = `skill-${responseId}-${skillName}`;
+
+      if (current.some((message) => message.id === eventId)) {
+        return current;
+      }
+
+      const responseIndex = current.findIndex((message) => message.id === responseId);
+      const skillMessage: Message = {
+        id: eventId,
+        role: "system",
+        content: `Skill loaded: ${skillName}`,
+        status: "normal",
+      };
+
+      if (responseIndex === -1) {
+        return [...current, skillMessage];
+      }
+
+      return [
+        ...current.slice(0, responseIndex),
+        skillMessage,
+        ...current.slice(responseIndex),
+      ];
+    });
+  }
+
+
   function messageLabel(message: Message): string {
+    if (message.role === "system") {
+      return "RUNTIME";
+    }
+
     if (message.role !== "assistant") {
       return message.role;
     }
@@ -126,41 +136,22 @@ export default function App() {
       onToken: (content) => {
         appendAssistantToken(id, content);
         setStreamingMessageId(id);
-        setStatus("Streaming model output");
-
-        if (!streamStartedRef.current) {
-          streamStartedRef.current = true;
-          addTrace("Model stream started");
-        }
+        setStatus("Streaming");
       },
-      onRoute: (selectedRoute, selectedSkill) => {
-        setRoute(selectedRoute);
-        setExpectedSkill(selectedSkill);
-        setStatus(`Route selected: ${selectedRoute}`);
-        addTrace(`Route selected: ${selectedRoute}`);
-
-        if (selectedSkill) {
-          addTrace(`Expected skill: ${selectedSkill}`);
-        } else {
-          addTrace("Expected skill: none");
-        }
+      onRoute: () => {
+        setStatus("Route selected");
       },
-      onSkill: (name, source) => {
-        setLoadedSkill(name);
-        setSkillSource(source);
-        setSkillSkippedReason(null);
-        setStatus(`Skill loaded: ${name}`);
-        addTrace(`Skill loaded: ${name}`);
+      onSkill: (name) => {
+        // Show only skills that were actually loaded by the backend.
+        // Put the event before the response bubble so the causal order is clear.
+        insertSkillEventBefore(id, name);
+        setStatus(`Skill: ${name}`);
       },
-      onSkillSkipped: (reason) => {
-        setLoadedSkill(null);
-        setSkillSource(null);
-        setSkillSkippedReason(reason);
-        addTrace("Skill skipped: not required");
+      onSkillSkipped: () => {
+        // General requests intentionally have no skill event in the conversation.
       },
-      onNode: (name) => {
-        setNodes((current) => [...current, name]);
-        addTrace(`Node completed: ${name}`);
+      onNode: () => {
+        // Graph-node details stay out of the end-user UI.
       },
       onInterrupt: (request) => {
         setApproval(request);
@@ -172,19 +163,16 @@ export default function App() {
           status: "draft_pending",
         }));
 
-        setStatus("Waiting for human approval");
-        addTrace("HITL: approval required");
+        setStatus("Waiting for approval");
       },
       onAction: (message) => {
         setStatus(message);
-        addTrace(`Action: ${message}`);
       },
       onDone: (interrupted) => {
         setBusy(false);
         setStreamingMessageId(null);
 
         if (!interrupted) {
-          // Normal general/summarize responses become final assistant messages.
           updateMessage(id, (message) =>
             message.status === "streaming"
               ? { ...message, status: "normal" }
@@ -192,7 +180,6 @@ export default function App() {
           );
 
           setStatus("Completed");
-          addTrace("Completed");
         }
       },
       onError: (message) => {
@@ -200,7 +187,6 @@ export default function App() {
         setBusy(false);
         setStreamingMessageId(null);
         setStatus("Failed");
-        addTrace(`Error: ${message}`);
       },
     };
   }
@@ -215,20 +201,9 @@ export default function App() {
     }
 
     setError(null);
-    setNodes([]);
     setBusy(true);
-    setStatus("Routing request");
+    setStatus("Routing");
     setInput("");
-
-    // Reset decision observability for this prompt only.
-    setActivePrompt(message);
-    setRoute(null);
-    setExpectedSkill(null);
-    setLoadedSkill(null);
-    setSkillSource(null);
-    setSkillSkippedReason(null);
-    setTrace(["Prompt received"]);
-    streamStartedRef.current = false;
 
     const userMessage: Message = {
       id: crypto.randomUUID(),
@@ -258,7 +233,6 @@ export default function App() {
       setBusy(false);
       setStreamingMessageId(null);
       setStatus("Failed");
-      addTrace(`Error: ${message}`);
     }
   }
 
@@ -273,9 +247,8 @@ export default function App() {
     setBusy(true);
     setError(null);
     setStreamingMessageId(null);
-    setStatus(approved ? "Resuming: approved" : "Resuming: rejected");
+    setStatus(approved ? "Approving…" : "Rejecting…");
     setApproval(null);
-    addTrace(approved ? "Human decision: approved" : "Human decision: rejected");
 
     try {
       await resumeThread(
@@ -284,9 +257,6 @@ export default function App() {
         makeHandlers(`resume-${crypto.randomUUID()}`),
       );
 
-      // Only mutate the visible draft after the backend resume completed
-      // successfully. Approve means the send node ran; reject means the graph
-      // terminated without executing the side effect.
       updateMessage(draftMessageId, (message) => ({
         ...message,
         status: approved ? "approved_sent" : "rejected",
@@ -300,7 +270,6 @@ export default function App() {
       setBusy(false);
       setStreamingMessageId(null);
       setStatus("Failed");
-      addTrace(`Error: ${message}`);
     }
   }
 
@@ -309,31 +278,13 @@ export default function App() {
     setThreadId(newThreadId());
     setInput("");
     setMessages([]);
-    setNodes([]);
     setApproval(null);
     setApprovalMessageId(null);
     setBusy(false);
     setError(null);
     setStreamingMessageId(null);
-    setActivePrompt(null);
-    setRoute(null);
-    setExpectedSkill(null);
-    setLoadedSkill(null);
-    setSkillSource(null);
-    setSkillSkippedReason(null);
-    setTrace([]);
-    streamStartedRef.current = false;
     setStatus("Ready");
   }
-
-
-  const skillDisplay = !route
-    ? "pending"
-    : expectedSkill === null
-      ? "none"
-      : loadedSkill
-        ? `${loadedSkill} ✓ loaded`
-        : `${expectedSkill} … loading`;
 
 
   return (
@@ -344,93 +295,21 @@ export default function App() {
             <p className="eyebrow">LANGGRAPH DEMO</p>
             <h1>Streaming + Router + Skills + HITL</h1>
             <p className="subtitle">
-              Watch each prompt move through routing, skill selection, model streaming,
-              and human approval in real time.
+              Skills appear inline only when the backend actually loads them.
             </p>
           </div>
-          <button
-            className="secondary-button"
-            onClick={resetConversation}
-            disabled={busy}
-          >
-            New thread
-          </button>
+
+          <div className="header-actions">
+            <span className="status-pill">{status}</span>
+            <button
+              className="secondary-button"
+              onClick={resetConversation}
+              disabled={busy}
+            >
+              New thread
+            </button>
+          </div>
         </header>
-
-        <section className="runtime-strip" aria-label="Runtime state">
-          <div>
-            <span className="runtime-label">Thread</span>
-            <code>{threadId.slice(0, 8)}</code>
-          </div>
-          <div>
-            <span className="runtime-label">Status</span>
-            <strong>{status}</strong>
-          </div>
-          <div>
-            <span className="runtime-label">Route</span>
-            <strong>{route ?? "—"}</strong>
-          </div>
-          <div>
-            <span className="runtime-label">Skill</span>
-            <strong>{route ? skillDisplay : "—"}</strong>
-          </div>
-        </section>
-
-        <section className="decision-trace" aria-label="Prompt to skill trace">
-          <div className="decision-header">
-            <div>
-              <p className="eyebrow">PROMPT → SKILL TRACE</p>
-              <h2>Why this request uses this capability</h2>
-            </div>
-            {skillSource && <code className="skill-source">{skillSource}</code>}
-          </div>
-
-          {activePrompt ? (
-            <>
-              <div className="decision-flow">
-                <div className="decision-step prompt-step">
-                  <span className="runtime-label">Prompt</span>
-                  <MarkdownContent content={activePrompt} />
-                </div>
-
-                <span className="decision-arrow">→</span>
-
-                <div className="decision-step">
-                  <span className="runtime-label">Route</span>
-                  <strong>{route ?? "classifying…"}</strong>
-                </div>
-
-                <span className="decision-arrow">→</span>
-
-                <div className="decision-step">
-                  <span className="runtime-label">Skill</span>
-                  <strong>{route ? skillDisplay : "waiting for route…"}</strong>
-                  {skillSkippedReason && (
-                    <small className="decision-note">{skillSkippedReason}</small>
-                  )}
-                </div>
-              </div>
-
-              <div className="trace-timeline">
-                {trace.map((entry, index) => (
-                  <div className="trace-entry" key={`${index}-${entry}`}>
-                    <span className="trace-dot" />
-                    <span>{entry}</span>
-                  </div>
-                ))}
-              </div>
-            </>
-          ) : (
-            <p className="decision-empty">
-              Send a prompt to see the router decision and actual skill-loading event.
-            </p>
-          )}
-        </section>
-
-        <section className="node-strip">
-          <span className="runtime-label">Graph nodes</span>
-          <span>{nodes.length ? nodes.join(" → ") : "—"}</span>
-        </section>
 
         <section className="messages" aria-live="polite" ref={messagesRef}>
           {messages.length === 0 ? (
@@ -458,7 +337,9 @@ export default function App() {
               >
                 <span className="message-role">{messageLabel(message)}</span>
 
-                {message.content ? (
+                {message.role === "system" ? (
+                  <span className="skill-event-text">{message.content}</span>
+                ) : message.content ? (
                   <MarkdownContent content={message.content} />
                 ) : null}
 
