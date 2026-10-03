@@ -8,5 +8,5 @@ from langchain_openai import ChatOpenAI
 model = ChatOpenAI(
     base_url=os.getenv("OPENAI_BASE_URL"),
     model=os.getenv("OPENAI_MODEL", "gpt-5.4-mini"),
-    temperature=0,
+    temperature=1,
 )
