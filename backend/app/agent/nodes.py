@@ -1,3 +1,4 @@
+import asyncio
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -162,8 +163,43 @@ def approval_node(state: AgentState) -> dict[str, bool]:
     return {"approved": decision["approved"]}
 
 
-def send_reply_node(state: AgentState) -> dict[str, str]:
-    """Demo-only fake send: append the approved draft to a local JSONL outbox."""
+async def send_reply_node(state: AgentState) -> dict[str, str]:
+    """
+    Demo-only fake tool.
+
+    Simulate a three-second external operation and stream progress while it is
+    running. Only after the simulated work completes do we execute the side
+    effect by appending the approved draft to the local outbox.
+    """
+    writer = get_stream_writer()
+    tool_name = "send_support_reply"
+    total_steps = 3
+
+    writer(
+        {
+            "type": "tool_started",
+            "tool": tool_name,
+            "message": "Starting fake support-reply send",
+            "progress": 0,
+        }
+    )
+
+    for step in range(1, total_steps + 1):
+        # asyncio.sleep keeps the event loop free, so progress is delivered to
+        # the browser while the fake tool is still running.
+        await asyncio.sleep(1)
+
+        # 100% is reserved for a successfully completed side effect.
+        progress = step * 30
+        writer(
+            {
+                "type": "tool_progress",
+                "tool": tool_name,
+                "message": f"Processing step {step}/{total_steps}",
+                "progress": progress,
+            }
+        )
+
     OUTBOX_PATH.parent.mkdir(parents=True, exist_ok=True)
 
     record = {
@@ -173,5 +209,14 @@ def send_reply_node(state: AgentState) -> dict[str, str]:
 
     with OUTBOX_PATH.open("a", encoding="utf-8") as file:
         file.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    writer(
+        {
+            "type": "tool_completed",
+            "tool": tool_name,
+            "message": "Reply written to data/outbox.jsonl",
+            "progress": 100,
+        }
+    )
 
     return {"action_result": "Reply written to data/outbox.jsonl"}

@@ -1,4 +1,9 @@
-import type { ApprovalRequest, RouteName, StreamHandlers } from "./types";
+import type {
+  ApprovalRequest,
+  RouteName,
+  StreamHandlers,
+  ToolEvent,
+} from "./types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
@@ -53,6 +58,16 @@ function dispatch(event: RawSseEvent, handlers: StreamHandlers): void {
         String(data.reason ?? "No specialized skill required."),
       );
       break;
+    case "tool": {
+      const toolEvent: ToolEvent = {
+        phase: String(data.phase ?? "progress") as ToolEvent["phase"],
+        tool: String(data.tool ?? "unknown_tool"),
+        message: String(data.message ?? "Tool is running"),
+        progress: Number(data.progress ?? 0),
+      };
+      handlers.onTool(toolEvent);
+      break;
+    }
     case "node":
       handlers.onNode(String(data.name ?? "unknown"));
       break;

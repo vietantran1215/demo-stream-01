@@ -90,6 +90,21 @@ async def stream_graph(input_value: object, thread_id: str) -> AsyncIterator[str
                             },
                         )
 
+                    elif custom_type in {
+                        "tool_started",
+                        "tool_progress",
+                        "tool_completed",
+                    }:
+                        yield sse(
+                            "tool",
+                            {
+                                "phase": custom_type.removeprefix("tool_"),
+                                "tool": custom.get("tool"),
+                                "message": custom.get("message"),
+                                "progress": custom.get("progress"),
+                            },
+                        )
+
             elif part["type"] == "updates":
                 for node_name, update in part["data"].items():
                     # __interrupt__ is runtime metadata, not a business node.

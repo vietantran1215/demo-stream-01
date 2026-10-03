@@ -2,7 +2,12 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 
 import { resumeThread, sendMessage } from "./api";
 import MarkdownContent from "./MarkdownContent";
-import type { ApprovalRequest, Message, StreamHandlers } from "./types";
+import type {
+  ApprovalRequest,
+  Message,
+  StreamHandlers,
+  ToolEvent,
+} from "./types";
 
 
 const EXAMPLES = [
@@ -109,9 +114,51 @@ export default function App() {
   }
 
 
+  function upsertToolEvent(requestId: string, event: ToolEvent): void {
+    const toolMessageId = `tool-${requestId}-${event.tool}`;
+
+    setMessages((current) => {
+      const existing = current.find((message) => message.id === toolMessageId);
+
+      if (!existing) {
+        return [
+          ...current,
+          {
+            id: toolMessageId,
+            role: "tool",
+            content: event.message,
+            status: "normal",
+            toolName: event.tool,
+            toolProgress: event.progress,
+            toolState: event.phase,
+          },
+        ];
+      }
+
+      return current.map((message) =>
+        message.id === toolMessageId
+          ? {
+              ...message,
+              content: event.message,
+              toolName: event.tool,
+              toolProgress: event.progress,
+              toolState: event.phase,
+            }
+          : message,
+      );
+    });
+  }
+
+
   function messageLabel(message: Message): string {
     if (message.role === "system") {
       return "RUNTIME";
+    }
+
+    if (message.role === "tool") {
+      return message.toolState === "completed"
+        ? "TOOL · COMPLETED"
+        : "TOOL · RUNNING";
     }
 
     if (message.role !== "assistant") {
@@ -149,6 +196,10 @@ export default function App() {
       },
       onSkillSkipped: () => {
         // General requests intentionally have no skill event in the conversation.
+      },
+      onTool: (event) => {
+        upsertToolEvent(id, event);
+        setStatus(`Tool: ${event.tool} · ${event.progress}%`);
       },
       onNode: () => {
         // Graph-node details stay out of the end-user UI.
@@ -334,11 +385,26 @@ export default function App() {
                 key={message.id}
                 className={`message ${message.role}`}
                 data-status={message.status ?? "normal"}
+                data-tool-state={message.toolState ?? ""}
               >
                 <span className="message-role">{messageLabel(message)}</span>
 
                 {message.role === "system" ? (
                   <span className="skill-event-text">{message.content}</span>
+                ) : message.role === "tool" ? (
+                  <div className="tool-event">
+                    <div className="tool-event-row">
+                      <code>{message.toolName ?? "tool"}</code>
+                      <strong>{message.toolProgress ?? 0}%</strong>
+                    </div>
+                    <div className="tool-progress-track" aria-hidden="true">
+                      <div
+                        className="tool-progress-value"
+                        style={{ width: `${message.toolProgress ?? 0}%` }}
+                      />
+                    </div>
+                    <span className="tool-event-copy">{message.content}</span>
+                  </div>
                 ) : message.content ? (
                   <MarkdownContent content={message.content} />
                 ) : null}

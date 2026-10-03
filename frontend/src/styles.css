@@ -490,3 +490,60 @@ h2 {
     width: fit-content;
   }
 }
+
+
+.message.tool {
+  width: min(520px, 92%);
+  max-width: 92%;
+  margin: 4px auto 16px;
+  padding: 12px 14px;
+  border: 1px solid #d8d8d1;
+  background: #fafaf8;
+}
+
+.message.tool[data-tool-state="completed"] {
+  border-color: #a8bfae;
+  background: #f4f8f4;
+}
+
+.tool-event {
+  display: grid;
+  gap: 8px;
+}
+
+.tool-event-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tool-event-row code {
+  overflow-wrap: anywhere;
+  font-size: 0.78rem;
+}
+
+.tool-event-row strong {
+  flex-shrink: 0;
+  font-size: 0.78rem;
+}
+
+.tool-progress-track {
+  width: 100%;
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e5e5df;
+}
+
+.tool-progress-value {
+  height: 100%;
+  border-radius: inherit;
+  background: #171717;
+  transition: width 220ms ease;
+}
+
+.tool-event-copy {
+  color: #66665f;
+  font-size: 0.78rem;
+}
