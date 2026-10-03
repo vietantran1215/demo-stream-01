@@ -73,6 +73,7 @@ interrupt()
 │   │   └── schemas.py
 │   ├── data/.gitkeep
 │   ├── scripts/smoke.py
+│   ├── dev.py
 │   ├── .env.example
 │   └── requirements.txt
 └── frontend
@@ -90,6 +91,30 @@ interrupt()
 
 ## 1. Backend setup
 
+### Recommended: one command
+
+`dev.py` uses only the Python standard library. It creates `.venv` when missing, installs dependencies into that exact interpreter, creates `.env` from the example when needed, and starts Uvicorn through the venv Python.
+
+```bash
+cd backend
+python dev.py
+```
+
+This deliberately does **not** depend on shell activation, so a globally installed `uvicorn` cannot accidentally run the app with the wrong Python environment.
+
+Configure `backend/.env` before using model-backed routes:
+
+```dotenv
+OPENAI_API_KEY=<your-key-here>
+OPENAI_BASE_URL=<your-base-url-here>
+OPENAI_MODEL=gpt-6-luna
+FRONTEND_ORIGIN=http://localhost:5173
+```
+
+### Manual setup
+
+If you want to see every environment step explicitly:
+
 ```bash
 cd backend
 
@@ -98,24 +123,26 @@ source .venv/bin/activate
 # Windows PowerShell:
 # .venv\Scripts\Activate.ps1
 
-pip install -r requirements.txt
+# Use "python -m pip", not bare "pip", so installation and runtime
+# use the exact same Python interpreter.
+python -m pip install -r requirements.txt
 
 cp .env.example .env
+
+# Same rule for Uvicorn: run it as a module through the active Python.
+python -m uvicorn app.main:app --reload --port 8000
 ```
 
-Set your OpenAI key in `backend/.env`:
-
-```dotenv
-OPENAI_API_KEY=your-key-here
-OPENAI_MODEL=gpt-5.4-mini
-FRONTEND_ORIGIN=http://localhost:5173
-```
-
-Run:
+Sanity check:
 
 ```bash
-uvicorn app.main:app --reload --port 8000
+which python
+python -c "import sys, fastapi; print(sys.executable); print(fastapi.__version__)"
 ```
+
+On macOS/Linux, `sys.executable` should point inside `backend/.venv/bin/python`.
+
+If a traceback instead points to a global path such as `/Library/Frameworks/Python.framework/...`, the wrong interpreter is running. Use `python dev.py` or reactivate `.venv`.
 
 Health check:
 
