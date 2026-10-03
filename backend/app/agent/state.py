@@ -4,7 +4,7 @@ from langchain_core.messages import AnyMessage
 from langgraph.graph.message import add_messages
 
 
-RouteName = Literal["general", "summarize", "support_reply"]
+RouteName = Literal["general", "support_reply"]
 
 
 class AgentState(TypedDict, total=False):

@@ -68,32 +68,17 @@ def main() -> None:
             print("\nModel-backed smoke tests skipped. Run with --live to execute them.")
             return
 
-        print("\n=== general ===")
+        print("\n=== general streaming ===")
         thread_id = str(uuid.uuid4())
         general = run_stream(
             client,
             f"/api/chat/{thread_id}",
             {"message": "What is LangGraph in one paragraph?"},
         )
+        assert any(event == "route" and data.get("route") == "general" for event, data in general)
         assert any(event == "token" for event, _ in general)
         assert not any(event == "interrupt" for event, _ in general)
-        print("PASS general")
-
-        print("\n=== summarize ===")
-        thread_id = str(uuid.uuid4())
-        summarized = run_stream(
-            client,
-            f"/api/chat/{thread_id}",
-            {
-                "message": (
-                    "Summarize this incident: The checkout API returned HTTP 503 from 09:31 "
-                    "to 10:04. A bad configuration was deployed at 09:27. "
-                    "Rollback completed at 10:02."
-                )
-            },
-        )
-        assert any(event == "token" for event, _ in summarized)
-        print("PASS summarize")
+        print("PASS general streaming")
 
         print("\n=== support agent + HITL middleware + approve ===")
         thread_id = str(uuid.uuid4())
@@ -106,6 +91,11 @@ def main() -> None:
                     "arrive in 3-5 business days."
                 )
             },
+        )
+
+        assert any(
+            event == "route" and data.get("route") == "support_reply"
+            for event, data in support
         )
 
         interrupts = [
@@ -135,7 +125,7 @@ def main() -> None:
             for event, data in resumed
         )
 
-        print("PASS support agent + built-in HITL + streamed tool progress")
+        print("PASS support agent + HITL + streamed tool progress")
 
 
 if __name__ == "__main__":

@@ -34,7 +34,7 @@ app.add_middleware(
 
 # Router output is internal. Only root model calls from these deterministic
 # nodes become assistant text. support_agent text is consumed from its subgraph.
-ROOT_USER_FACING_MODEL_NODES = {"general", "summarize"}
+ROOT_USER_FACING_MODEL_NODES = {"general"}
 
 
 def sse(event: str, data: object) -> str:

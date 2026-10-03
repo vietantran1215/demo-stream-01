@@ -17,7 +17,7 @@ export type Message = {
   toolState?: ToolState;
 };
 
-export type RouteName = "general" | "summarize" | "support_reply";
+export type RouteName = "general" | "support_reply";
 
 export type ApprovalRequest = {
   id: string;

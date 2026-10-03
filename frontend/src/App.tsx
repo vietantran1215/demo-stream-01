@@ -12,7 +12,6 @@ import type {
 
 const EXAMPLES = [
   "What is **LangGraph** in one paragraph?",
-  "Summarize this incident:\n\n- Checkout API returned **HTTP 503** from 09:31 to 10:04.\n- A bad configuration was deployed at 09:27.\n- Rollback completed at 10:02.",
   "Reply to the customer saying their refund has been **approved** and will arrive in `3-5 business days`.",
 ];
 
@@ -320,7 +319,7 @@ export default function App() {
         <section className="messages" aria-live="polite" ref={messagesRef}>
           {messages.length === 0 ? (
             <div className="empty-state">
-              <h2>Try one of the three paths</h2>
+              <h2>Try one of the two paths</h2>
               <div className="example-grid">
                 {EXAMPLES.map((example) => (
                   <button
@@ -412,7 +411,7 @@ export default function App() {
           <textarea
             value={input}
             onChange={(event) => setInput(event.target.value)}
-            placeholder="Ask a question, summarize content, or draft a support reply..."
+            placeholder="Ask a question or draft a support reply..."
             rows={4}
             disabled={busy || Boolean(approval)}
           />

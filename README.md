@@ -2,7 +2,7 @@
 
 Minimal end-to-end demo of **LangChain/LangGraph Streaming + Human-in-the-Loop (HITL) + FastAPI SSE + React**.
 
-The project intentionally avoids RAG, skills, MCP, authentication, queues, databases, and cloud infrastructure so the runtime behavior stays visible.
+The project intentionally keeps only two execution paths so the streaming and HITL mechanics stay visible.
 
 ## Architecture
 
@@ -11,31 +11,38 @@ User
   |
   v
 Router
-  |-------------------------------|
-  |               |               |
-  v               v               v
-general        summarize      support_agent
-  |               |          (create_agent)
-  |               |               |
-  v               v               v
-LLM stream      LLM stream    LLM proposes
-                                @tool call
-                                   |
-                                   v
-                        HumanInTheLoopMiddleware
-                              [PAUSE]
-                             /       \
-                        Reject      Approve
-                          |            |
-                          |            v
-                          |    send_support_reply
-                          |      0→30→60→90→100
-                          |            |
-                          |            v
-                          |     data/outbox.jsonl
-                          |            |
-                          +------> agent continues
+  |---------------------------|
+  |                           |
+  v                           v
+general                  support_agent
+  |                      (create_agent)
+  v                           |
+LLM stream                    v
+  |                      LLM proposes
+  v                         @tool call
+ END                           |
+                               v
+                    HumanInTheLoopMiddleware
+                          [PAUSE]
+                         /       \
+                    Reject      Approve
+                      |            |
+                      |            v
+                      |    send_support_reply
+                      |      0→30→60→90→100
+                      |            |
+                      |            v
+                      |     data/outbox.jsonl
+                      |            |
+                      +------> agent continues
 ```
+
+## Why two paths?
+
+- `general` demonstrates native model-output streaming from a normal LangGraph node.
+- `support_agent` demonstrates nested-agent streaming, tool calling, custom tool-progress events, and HITL pause/resume.
+
+The router exists only to make those two runtime behaviors easy to trigger in one small application.
 
 ## Stack
 
@@ -112,21 +119,15 @@ cd backend
 python scripts/smoke.py --live
 ```
 
-## Runtime flow
+## Runtime flows
 
 ### General
 
 ```text
-router -> general -> END
+router -> general -> model -> END
 ```
 
-### Summarize
-
-```text
-router -> summarize -> END
-```
-
-The summarize behavior is a small inline system prompt in `nodes.py`; there is no skill loader or external prompt file.
+The node calls `model.ainvoke()`. LangGraph Event Streaming exposes the model deltas through the native message projection.
 
 ### Support reply + HITL
 
@@ -152,31 +153,29 @@ Events:
 - `done`: stream finished or paused
 - `error`: terminal application-level failure
 
-FastAPI is an adapter between LangGraph runtime events and this small browser-facing protocol. React does not know LangGraph or middleware payload shapes.
+FastAPI adapts LangGraph runtime events into this small browser-facing protocol. React does not know LangGraph or middleware payload shapes.
 
 ## Streaming details
 
-Event Streaming v3 registers `lifecycle`, `messages`, `subgraphs`, and `values` by default. This demo registers `CustomTransformer` so `get_stream_writer()` tool progress and route events are available through `run.custom` and nested `subgraph.custom`.
+Event Streaming v3 registers `lifecycle`, `messages`, `subgraphs`, and `values` by default. This demo registers `CustomTransformer` so `get_stream_writer()` route and tool-progress events are available through `run.custom` and nested `subgraph.custom`.
 
-The async API uses methods:
+The async run-state API uses methods:
 
 ```python
 interrupted = await run.interrupted()
 interrupts = await run.interrupts()
 ```
 
-The sync API exposes the equivalent state as properties.
-
 ## Core learning points
 
-1. The parent LangGraph controls routing.
-2. General and summarize are deterministic model nodes.
-3. The support branch is a `create_agent` subgraph with a real LangChain `@tool`.
-4. Native message projections stream model output without manually calling `model.astream()`.
-5. Custom events stream long-running tool progress.
-6. `HumanInTheLoopMiddleware` pauses after a tool call is proposed and before its side effect executes.
-7. FastAPI normalizes LangGraph/HITL runtime structures into a framework-agnostic SSE contract.
-8. React renders execution state instead of owning workflow policy.
+1. A normal LangGraph node can call `model.ainvoke()` while its model output is still streamed through the message projection.
+2. A `create_agent` runtime can be embedded as a subgraph node inside a parent LangGraph.
+3. Nested agent model output and custom tool events must be consumed from the subgraph stream.
+4. `get_stream_writer()` is useful for domain/runtime progress that is not model text.
+5. `HumanInTheLoopMiddleware` pauses after the model proposes the tool call and before the side effect executes.
+6. The same `thread_id` and checkpointer allow the paused execution to resume.
+7. FastAPI normalizes framework-specific events into a small SSE contract.
+8. React observes and controls runtime execution without owning workflow policy.
 
 ## Not production-grade
 
