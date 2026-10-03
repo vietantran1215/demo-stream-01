@@ -319,7 +319,7 @@ Event types:
 
 The backend uses LangGraph Event Streaming v3 as the runtime-facing API and adapts its typed projections to this intentionally small SSE contract. Root projections carry the deterministic branches; the support agent runs as a nested subgraph, so its messages and custom tool-progress events are consumed from the subgraph projection. The frontend does not know LangGraph or middleware internals; it only renders these application events.
 
-> LangGraph 1.2.x currently marks Event Streaming v3 as experimental. This demo uses it because it is the current recommended direction for new applications, while keeping the browser protocol small enough to swap the backend streaming adapter later if the API changes.
+> LangGraph 1.2.x currently marks Event Streaming v3 as experimental. This demo uses it because it is the current recommended direction for new applications, while keeping the browser protocol small enough to swap the backend streaming adapter later if the API changes. On the async API, `AsyncGraphRunStream.interrupted()` and `interrupts()` are awaitable methods, while their sync `GraphRunStream` counterparts are properties.
 
 ## Core learning points
 

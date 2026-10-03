@@ -243,8 +243,10 @@ async def stream_graph(input_value: object, thread_id: str) -> AsyncIterator[str
                 if isinstance(result, Exception):
                     raise result
 
-            interrupted = run.interrupted
-            interrupts = list(run.interrupts)
+            # AsyncGraphRunStream exposes these as async methods, unlike the
+            # sync GraphRunStream properties.
+            interrupted = await run.interrupted()
+            interrupts = await run.interrupts()
 
         for pending_interrupt in interrupts:
             yield sse(
