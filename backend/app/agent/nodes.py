@@ -72,6 +72,14 @@ async def stream_model(messages: list, config: RunnableConfig) -> AIMessage:
 
 async def general_node(state: AgentState, config: RunnableConfig) -> dict:
     """Handle requests that do not need a specialized skill."""
+    writer = get_stream_writer()
+    writer(
+        {
+            "type": "skill_skipped",
+            "reason": "The general route does not require a specialized skill.",
+        }
+    )
+
     response = await stream_model(
         [
             SystemMessage(
@@ -90,7 +98,18 @@ async def general_node(state: AgentState, config: RunnableConfig) -> dict:
 
 async def summarize_node(state: AgentState, config: RunnableConfig) -> dict:
     """Load the summarize skill only after the router selects this node."""
-    skill = load_skill("summarize")
+    skill_name = "summarize"
+    skill = load_skill(skill_name)
+
+    # Emit this only after the file was actually loaded successfully.
+    get_stream_writer()(
+        {
+            "type": "skill_loaded",
+            "name": skill_name,
+            "source": "skills/summarize/SKILL.md",
+        }
+    )
+
     response = await stream_model(
         [SystemMessage(content=skill), *state["messages"]],
         config,
@@ -100,7 +119,18 @@ async def summarize_node(state: AgentState, config: RunnableConfig) -> dict:
 
 async def support_reply_node(state: AgentState, config: RunnableConfig) -> dict:
     """Generate a customer-facing draft but do not execute the side effect."""
-    skill = load_skill("support-reply")
+    skill_name = "support-reply"
+    skill = load_skill(skill_name)
+
+    # Emit this only after the file was actually loaded successfully.
+    get_stream_writer()(
+        {
+            "type": "skill_loaded",
+            "name": skill_name,
+            "source": "skills/support-reply/SKILL.md",
+        }
+    )
+
     response = await stream_model(
         [SystemMessage(content=skill), *state["messages"]],
         config,

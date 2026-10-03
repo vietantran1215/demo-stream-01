@@ -1,6 +1,7 @@
 from typing import Literal
 
 from langchain_core.runnables import RunnableConfig
+from langgraph.config import get_stream_writer
 from pydantic import BaseModel, Field
 
 from .model import model
@@ -13,11 +14,17 @@ class RouteDecision(BaseModel):
     )
 
 
+ROUTE_TO_SKILL: dict[RouteName, str | None] = {
+    "general": None,
+    "summarize": "summarize",
+    "support_reply": "support-reply",
+}
+
 router_model = model.with_structured_output(RouteDecision)
 
 
 async def router_node(state: AgentState, config: RunnableConfig) -> dict[str, RouteName]:
-    """Classify the latest request. The router does not answer the user."""
+    """Classify the latest request and expose the decision through the custom stream."""
     decision = await router_model.ainvoke(
         [
             {
@@ -36,4 +43,16 @@ async def router_node(state: AgentState, config: RunnableConfig) -> dict[str, Ro
         config,
     )
 
-    return {"route": decision.route}
+    route = decision.route
+    writer = get_stream_writer()
+
+    # This event explains the router's decision before the target node starts.
+    writer(
+        {
+            "type": "route_selected",
+            "route": route,
+            "expected_skill": ROUTE_TO_SKILL[route],
+        }
+    )
+
+    return {"route": route}

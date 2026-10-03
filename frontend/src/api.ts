@@ -1,4 +1,4 @@
-import type { ApprovalRequest, StreamHandlers } from "./types";
+import type { ApprovalRequest, RouteName, StreamHandlers } from "./types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
@@ -35,6 +35,23 @@ function dispatch(event: RawSseEvent, handlers: StreamHandlers): void {
   switch (event.event) {
     case "token":
       handlers.onToken(String(data.content ?? ""));
+      break;
+    case "route":
+      handlers.onRoute(
+        String(data.route ?? "general") as RouteName,
+        data.expected_skill == null ? null : String(data.expected_skill),
+      );
+      break;
+    case "skill":
+      handlers.onSkill(
+        String(data.name ?? "unknown"),
+        String(data.source ?? "unknown"),
+      );
+      break;
+    case "skill_skipped":
+      handlers.onSkillSkipped(
+        String(data.reason ?? "No specialized skill required."),
+      );
       break;
     case "node":
       handlers.onNode(String(data.name ?? "unknown"));

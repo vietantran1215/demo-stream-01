@@ -2,7 +2,12 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 
 import { resumeThread, sendMessage } from "./api";
 import MarkdownContent from "./MarkdownContent";
-import type { ApprovalRequest, Message, StreamHandlers } from "./types";
+import type {
+  ApprovalRequest,
+  Message,
+  RouteName,
+  StreamHandlers,
+} from "./types";
 
 
 const EXAMPLES = [
@@ -28,16 +33,32 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
 
+  // Runtime decision trace for the latest prompt.
+  const [activePrompt, setActivePrompt] = useState<string | null>(null);
+  const [route, setRoute] = useState<RouteName | null>(null);
+  const [expectedSkill, setExpectedSkill] = useState<string | null>(null);
+  const [loadedSkill, setLoadedSkill] = useState<string | null>(null);
+  const [skillSource, setSkillSource] = useState<string | null>(null);
+  const [skillSkippedReason, setSkillSkippedReason] = useState<string | null>(null);
+  const [trace, setTrace] = useState<string[]>([]);
+
   const messagesRef = useRef<HTMLElement | null>(null);
+  const streamStartedRef = useRef(false);
 
 
-  // Keep the newest streamed token visible without requiring manual scrolling.
   useEffect(() => {
     const element = messagesRef.current;
     if (element) {
       element.scrollTop = element.scrollHeight;
     }
   }, [messages, approval]);
+
+
+  function addTrace(entry: string): void {
+    setTrace((current) =>
+      current[current.length - 1] === entry ? current : [...current, entry],
+    );
+  }
 
 
   function appendAssistantToken(id: string, token: string): void {
@@ -60,28 +81,61 @@ export default function App() {
   function makeHandlers(id: string): StreamHandlers {
     return {
       onToken: (content) => {
-        // Every SSE token updates React state immediately.
-        // MarkdownContent reparses the growing string on every render.
         appendAssistantToken(id, content);
         setStreamingMessageId(id);
         setStatus("Streaming model output");
+
+        if (!streamStartedRef.current) {
+          streamStartedRef.current = true;
+          addTrace("Model stream started");
+        }
+      },
+      onRoute: (selectedRoute, selectedSkill) => {
+        setRoute(selectedRoute);
+        setExpectedSkill(selectedSkill);
+        setStatus(`Route selected: ${selectedRoute}`);
+        addTrace(`Route selected: ${selectedRoute}`);
+
+        if (selectedSkill) {
+          addTrace(`Expected skill: ${selectedSkill}`);
+        } else {
+          addTrace("Expected skill: none");
+        }
+      },
+      onSkill: (name, source) => {
+        setLoadedSkill(name);
+        setSkillSource(source);
+        setSkillSkippedReason(null);
+        setStatus(`Skill loaded: ${name}`);
+        addTrace(`Skill loaded: ${name}`);
+      },
+      onSkillSkipped: (reason) => {
+        setLoadedSkill(null);
+        setSkillSource(null);
+        setSkillSkippedReason(reason);
+        addTrace("Skill skipped: not required");
       },
       onNode: (name) => {
         setNodes((current) => [...current, name]);
-        setStatus(`Node: ${name}`);
+        addTrace(`Node completed: ${name}`);
       },
       onInterrupt: (request) => {
         setApproval(request);
         setStreamingMessageId(null);
         setStatus("Waiting for human approval");
+        addTrace("HITL: approval required");
       },
-      onAction: (message) => setStatus(message),
+      onAction: (message) => {
+        setStatus(message);
+        addTrace(`Action: ${message}`);
+      },
       onDone: (interrupted) => {
         setBusy(false);
         setStreamingMessageId(null);
 
         if (!interrupted) {
           setStatus("Completed");
+          addTrace("Completed");
         }
       },
       onError: (message) => {
@@ -89,6 +143,7 @@ export default function App() {
         setBusy(false);
         setStreamingMessageId(null);
         setStatus("Failed");
+        addTrace(`Error: ${message}`);
       },
     };
   }
@@ -108,6 +163,16 @@ export default function App() {
     setStatus("Routing request");
     setInput("");
 
+    // Reset decision observability for this prompt only.
+    setActivePrompt(message);
+    setRoute(null);
+    setExpectedSkill(null);
+    setLoadedSkill(null);
+    setSkillSource(null);
+    setSkillSkippedReason(null);
+    setTrace(["Prompt received"]);
+    streamStartedRef.current = false;
+
     const userMessage: Message = {
       id: crypto.randomUUID(),
       role: "user",
@@ -116,8 +181,6 @@ export default function App() {
 
     const responseMessageId = `assistant-${crypto.randomUUID()}`;
 
-    // Create the assistant bubble before the first network chunk arrives.
-    // This makes the streaming lifecycle visible immediately via the cursor.
     setMessages((current) => [
       ...current,
       userMessage,
@@ -132,10 +195,12 @@ export default function App() {
     try {
       await sendMessage(threadId, message, makeHandlers(responseMessageId));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      const message = cause instanceof Error ? cause.message : String(cause);
+      setError(message);
       setBusy(false);
       setStreamingMessageId(null);
       setStatus("Failed");
+      addTrace(`Error: ${message}`);
     }
   }
 
@@ -150,6 +215,7 @@ export default function App() {
     setStreamingMessageId(null);
     setStatus(approved ? "Resuming: approved" : "Resuming: rejected");
     setApproval(null);
+    addTrace(approved ? "Human decision: approved" : "Human decision: rejected");
 
     try {
       await resumeThread(
@@ -158,10 +224,12 @@ export default function App() {
         makeHandlers(`resume-${crypto.randomUUID()}`),
       );
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      const message = cause instanceof Error ? cause.message : String(cause);
+      setError(message);
       setBusy(false);
       setStreamingMessageId(null);
       setStatus("Failed");
+      addTrace(`Error: ${message}`);
     }
   }
 
@@ -175,8 +243,25 @@ export default function App() {
     setBusy(false);
     setError(null);
     setStreamingMessageId(null);
+    setActivePrompt(null);
+    setRoute(null);
+    setExpectedSkill(null);
+    setLoadedSkill(null);
+    setSkillSource(null);
+    setSkillSkippedReason(null);
+    setTrace([]);
+    streamStartedRef.current = false;
     setStatus("Ready");
   }
+
+
+  const skillDisplay = !route
+    ? "pending"
+    : expectedSkill === null
+      ? "none"
+      : loadedSkill
+        ? `${loadedSkill} ✓ loaded`
+        : `${expectedSkill} … loading`;
 
 
   return (
@@ -187,8 +272,8 @@ export default function App() {
             <p className="eyebrow">LANGGRAPH DEMO</p>
             <h1>Streaming + Router + Skills + HITL</h1>
             <p className="subtitle">
-              Token-by-token output with live Markdown rendering. The backend owns
-              workflow policy; this UI only renders stream events and human approval.
+              Watch each prompt move through routing, skill selection, model streaming,
+              and human approval in real time.
             </p>
           </div>
           <button
@@ -209,10 +294,70 @@ export default function App() {
             <span className="runtime-label">Status</span>
             <strong>{status}</strong>
           </div>
-          <div className="node-list">
-            <span className="runtime-label">Nodes</span>
-            <span>{nodes.length ? nodes.join(" → ") : "—"}</span>
+          <div>
+            <span className="runtime-label">Route</span>
+            <strong>{route ?? "—"}</strong>
           </div>
+          <div>
+            <span className="runtime-label">Skill</span>
+            <strong>{route ? skillDisplay : "—"}</strong>
+          </div>
+        </section>
+
+        <section className="decision-trace" aria-label="Prompt to skill trace">
+          <div className="decision-header">
+            <div>
+              <p className="eyebrow">PROMPT → SKILL TRACE</p>
+              <h2>Why this request uses this capability</h2>
+            </div>
+            {skillSource && <code className="skill-source">{skillSource}</code>}
+          </div>
+
+          {activePrompt ? (
+            <>
+              <div className="decision-flow">
+                <div className="decision-step prompt-step">
+                  <span className="runtime-label">Prompt</span>
+                  <MarkdownContent content={activePrompt} />
+                </div>
+
+                <span className="decision-arrow">→</span>
+
+                <div className="decision-step">
+                  <span className="runtime-label">Route</span>
+                  <strong>{route ?? "classifying…"}</strong>
+                </div>
+
+                <span className="decision-arrow">→</span>
+
+                <div className="decision-step">
+                  <span className="runtime-label">Skill</span>
+                  <strong>{route ? skillDisplay : "waiting for route…"}</strong>
+                  {skillSkippedReason && (
+                    <small className="decision-note">{skillSkippedReason}</small>
+                  )}
+                </div>
+              </div>
+
+              <div className="trace-timeline">
+                {trace.map((entry, index) => (
+                  <div className="trace-entry" key={`${index}-${entry}`}>
+                    <span className="trace-dot" />
+                    <span>{entry}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <p className="decision-empty">
+              Send a prompt to see the router decision and actual skill-loading event.
+            </p>
+          )}
+        </section>
+
+        <section className="node-strip">
+          <span className="runtime-label">Graph nodes</span>
+          <span>{nodes.length ? nodes.join(" → ") : "—"}</span>
         </section>
 
         <section className="messages" aria-live="polite" ref={messagesRef}>

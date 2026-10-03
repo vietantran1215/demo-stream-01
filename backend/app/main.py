@@ -55,12 +55,40 @@ async def stream_graph(input_value: object, thread_id: str) -> AsyncIterator[str
                 custom = part["data"]
 
                 # Generation nodes explicitly emit these from model.astream().
-                if (
-                    isinstance(custom, dict)
-                    and custom.get("type") == "token"
-                    and isinstance(custom.get("content"), str)
-                ):
-                    yield sse("token", {"content": custom["content"]})
+                if isinstance(custom, dict):
+                    custom_type = custom.get("type")
+
+                    if (
+                        custom_type == "token"
+                        and isinstance(custom.get("content"), str)
+                    ):
+                        yield sse("token", {"content": custom["content"]})
+
+                    elif custom_type == "route_selected":
+                        yield sse(
+                            "route",
+                            {
+                                "route": custom.get("route"),
+                                "expected_skill": custom.get("expected_skill"),
+                            },
+                        )
+
+                    elif custom_type == "skill_loaded":
+                        yield sse(
+                            "skill",
+                            {
+                                "name": custom.get("name"),
+                                "source": custom.get("source"),
+                            },
+                        )
+
+                    elif custom_type == "skill_skipped":
+                        yield sse(
+                            "skill_skipped",
+                            {
+                                "reason": custom.get("reason"),
+                            },
+                        )
 
             elif part["type"] == "updates":
                 for node_name, update in part["data"].items():
