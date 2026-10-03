@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 from collections.abc import AsyncIterator
@@ -30,6 +31,10 @@ app.add_middleware(
     allow_headers=["Content-Type"],
 )
 
+# The router also calls an LLM, but its structured-output tokens are internal.
+# Only these user-facing generation nodes should become SSE token events.
+USER_FACING_MODEL_NODES = {"general", "summarize", "support_reply"}
+
 
 def sse(event: str, data: object) -> str:
     """Encode one JSON payload as a Server-Sent Event frame."""
@@ -37,107 +42,149 @@ def sse(event: str, data: object) -> str:
     return f"event: {event}\ndata: {payload}\n\n"
 
 
+def map_custom_event(custom: object) -> tuple[str, dict] | None:
+    """Map domain-level LangGraph custom events to the browser SSE contract."""
+    if not isinstance(custom, dict):
+        return None
+
+    custom_type = custom.get("type")
+
+    if custom_type == "route_selected":
+        return (
+            "route",
+            {
+                "route": custom.get("route"),
+                "expected_skill": custom.get("expected_skill"),
+            },
+        )
+
+    if custom_type == "skill_loaded":
+        return (
+            "skill",
+            {
+                "name": custom.get("name"),
+                "source": custom.get("source"),
+            },
+        )
+
+    if custom_type == "skill_skipped":
+        return (
+            "skill_skipped",
+            {
+                "reason": custom.get("reason"),
+            },
+        )
+
+    if custom_type in {"tool_started", "tool_progress", "tool_completed"}:
+        return (
+            "tool",
+            {
+                "phase": custom_type.removeprefix("tool_"),
+                "tool": custom.get("tool"),
+                "message": custom.get("message"),
+                "progress": custom.get("progress"),
+            },
+        )
+
+    return None
+
+
 async def stream_graph(input_value: object, thread_id: str) -> AsyncIterator[str]:
     """
-    Translate LangGraph custom token events + node updates into a tiny SSE
-    protocol consumed by the React frontend.
+    Adapt LangGraph Event Streaming v3 to the app's small SSE protocol.
+
+    Native projections have clear responsibilities:
+    - run.messages: LLM text deltas
+    - run.custom: route, skill and tool-progress domain events
+    - run.interrupts: pending HITL requests after the run pauses
     """
     config = {"configurable": {"thread_id": thread_id}}
 
     try:
-        async for part in graph.astream(
+        run = await graph.astream_events(
             input_value,
             config=config,
-            stream_mode=["custom", "updates"],
-            version="v2",
-        ):
-            if part["type"] == "custom":
-                custom = part["data"]
+            version="v3",
+        )
 
-                # Generation nodes explicitly emit these from model.astream().
-                if isinstance(custom, dict):
-                    custom_type = custom.get("type")
+        queue: asyncio.Queue[tuple[str, object]] = asyncio.Queue()
 
-                    if (
-                        custom_type == "token"
-                        and isinstance(custom.get("content"), str)
-                    ):
-                        yield sse("token", {"content": custom["content"]})
+        async def consume_messages() -> None:
+            try:
+                async for message in run.messages:
+                    async for text in message.text:
+                        # Do not leak structured-output/router model tokens into
+                        # the end-user assistant message.
+                        if message.node in USER_FACING_MODEL_NODES and text:
+                            await queue.put(("token", {"content": text}))
+            except Exception as exc:
+                await queue.put(("__error__", exc))
+            finally:
+                await queue.put(("__done__", "messages"))
 
-                    elif custom_type == "route_selected":
-                        yield sse(
-                            "route",
-                            {
-                                "route": custom.get("route"),
-                                "expected_skill": custom.get("expected_skill"),
-                            },
-                        )
+        async def consume_custom() -> None:
+            try:
+                async for custom in run.custom:
+                    mapped = map_custom_event(custom)
+                    if mapped is not None:
+                        await queue.put(mapped)
+            except Exception as exc:
+                await queue.put(("__error__", exc))
+            finally:
+                await queue.put(("__done__", "custom"))
 
-                    elif custom_type == "skill_loaded":
-                        yield sse(
-                            "skill",
-                            {
-                                "name": custom.get("name"),
-                                "source": custom.get("source"),
-                            },
-                        )
+        async with run:
+            consumers = [
+                asyncio.create_task(consume_messages()),
+                asyncio.create_task(consume_custom()),
+            ]
 
-                    elif custom_type == "skill_skipped":
-                        yield sse(
-                            "skill_skipped",
-                            {
-                                "reason": custom.get("reason"),
-                            },
-                        )
+            completed_consumers = 0
+            stream_error: Exception | None = None
 
-                    elif custom_type in {
-                        "tool_started",
-                        "tool_progress",
-                        "tool_completed",
-                    }:
-                        yield sse(
-                            "tool",
-                            {
-                                "phase": custom_type.removeprefix("tool_"),
-                                "tool": custom.get("tool"),
-                                "message": custom.get("message"),
-                                "progress": custom.get("progress"),
-                            },
-                        )
+            while completed_consumers < len(consumers):
+                event, data = await queue.get()
 
-            elif part["type"] == "updates":
-                for node_name, update in part["data"].items():
-                    # __interrupt__ is runtime metadata, not a business node.
-                    if not node_name.startswith("__"):
-                        yield sse("node", {"name": node_name})
+                if event == "__done__":
+                    completed_consumers += 1
+                    continue
 
-                    if node_name == "send" and isinstance(update, dict):
-                        result = update.get("action_result")
-                        if result:
-                            yield sse("action", {"message": result})
+                if event == "__error__":
+                    if stream_error is None and isinstance(data, Exception):
+                        stream_error = data
+                    continue
 
-        # A normal stream ends when the graph either finishes or pauses.
-        # Inspect checkpoint tasks to surface pending HITL interrupts.
-        snapshot = await graph.aget_state(config)
-        interrupted = False
+                if stream_error is None:
+                    yield sse(event, data)
 
-        for task in snapshot.tasks:
-            for pending_interrupt in task.interrupts:
-                interrupted = True
-                yield sse(
-                    "interrupt",
-                    {
-                        "id": pending_interrupt.id,
-                        "value": pending_interrupt.value,
-                    },
-                )
+            results = await asyncio.gather(*consumers, return_exceptions=True)
+
+            if stream_error is not None:
+                raise stream_error
+
+            for result in results:
+                if isinstance(result, Exception):
+                    raise result
+
+            interrupted = run.interrupted
+            interrupts = list(run.interrupts)
+
+        for pending_interrupt in interrupts:
+            yield sse(
+                "interrupt",
+                {
+                    "id": pending_interrupt.id,
+                    "value": pending_interrupt.value,
+                },
+            )
 
         yield sse("done", {"interrupted": interrupted})
 
     except Exception as exc:
-        # Keep the demo debuggable without leaking a full stack trace via HTTP.
+        # The HTTP stream may already be 200, so failures are application-level
+        # SSE events. Do not emit "done" after an error; the client treats error
+        # as terminal.
         yield sse("error", {"message": str(exc)})
-        yield sse("done", {"interrupted": False})
 
 
 @app.get("/health")

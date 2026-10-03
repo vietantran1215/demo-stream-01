@@ -3,7 +3,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from langchain_core.messages import AIMessage, SystemMessage
+from langchain_core.messages import SystemMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.config import get_stream_writer
 from langgraph.types import interrupt
@@ -18,7 +18,7 @@ OUTBOX_PATH = Path(__file__).resolve().parents[2] / "data" / "outbox.jsonl"
 
 
 def message_text(message: object) -> str:
-    """Normalize LangChain text content into a plain string."""
+    """Normalize LangChain message content into a plain string."""
     text = getattr(message, "text", None)
     if isinstance(text, str):
         return text
@@ -39,49 +39,19 @@ def message_text(message: object) -> str:
     return str(content)
 
 
-async def stream_model(messages: list, config: RunnableConfig) -> AIMessage:
-    """
-    Stream the provider response explicitly and mirror every text chunk into
-    LangGraph's custom stream channel.
-
-    Why not rely only on stream_mode="messages"?
-    Custom OpenAI-compatible gateways can behave differently around callback
-    propagation. Explicit model.astream() makes the streaming boundary visible
-    and deterministic for this teaching demo.
-    """
-    writer = get_stream_writer()
-    parts: list[str] = []
-
-    async for chunk in model.astream(messages, config):
-        text = message_text(chunk)
-        if not text:
-            continue
-
-        parts.append(text)
-
-        # The FastAPI layer subscribes to stream_mode="custom" and converts
-        # this payload into an SSE "token" event for the browser.
-        writer(
-            {
-                "type": "token",
-                "content": text,
-            }
-        )
-
-    return AIMessage(content="".join(parts))
-
-
 async def general_node(state: AgentState, config: RunnableConfig) -> dict:
     """Handle requests that do not need a specialized skill."""
-    writer = get_stream_writer()
-    writer(
+    get_stream_writer()(
         {
             "type": "skill_skipped",
             "reason": "The general route does not require a specialized skill.",
         }
     )
 
-    response = await stream_model(
+    # LangGraph's messages/event stream surfaces model tokens even though this
+    # node uses ainvoke(). The node stays responsible for the final AIMessage;
+    # the transport layer is responsible for streaming its deltas.
+    response = await model.ainvoke(
         [
             SystemMessage(
                 content=(
@@ -102,7 +72,6 @@ async def summarize_node(state: AgentState, config: RunnableConfig) -> dict:
     skill_name = "summarize"
     skill = load_skill(skill_name)
 
-    # Emit this only after the file was actually loaded successfully.
     get_stream_writer()(
         {
             "type": "skill_loaded",
@@ -111,7 +80,7 @@ async def summarize_node(state: AgentState, config: RunnableConfig) -> dict:
         }
     )
 
-    response = await stream_model(
+    response = await model.ainvoke(
         [SystemMessage(content=skill), *state["messages"]],
         config,
     )
@@ -123,7 +92,6 @@ async def support_reply_node(state: AgentState, config: RunnableConfig) -> dict:
     skill_name = "support-reply"
     skill = load_skill(skill_name)
 
-    # Emit this only after the file was actually loaded successfully.
     get_stream_writer()(
         {
             "type": "skill_loaded",
@@ -132,7 +100,7 @@ async def support_reply_node(state: AgentState, config: RunnableConfig) -> dict:
         }
     )
 
-    response = await stream_model(
+    response = await model.ainvoke(
         [SystemMessage(content=skill), *state["messages"]],
         config,
     )
@@ -144,10 +112,11 @@ async def support_reply_node(state: AgentState, config: RunnableConfig) -> dict:
 
 def approval_node(state: AgentState) -> dict[str, bool]:
     """
-    Pause the graph until a human approves or rejects the generated draft.
+    Pause this deterministic workflow until a human approves or rejects.
 
-    LangGraph re-runs this node from the beginning when execution resumes, so no
-    irreversible side effect is allowed before interrupt().
+    HumanInTheLoopMiddleware is designed for create_agent tool calls. This
+    graph has an explicit support_reply -> approval -> send path, so direct
+    interrupt() is the smaller and more precise primitive.
     """
     decision = interrupt(
         {
@@ -164,16 +133,9 @@ def approval_node(state: AgentState) -> dict[str, bool]:
 
 
 async def send_reply_node(state: AgentState) -> dict[str, str]:
-    """
-    Demo-only fake tool.
-
-    Simulate a three-second external operation and stream progress while it is
-    running. Only after the simulated work completes do we execute the side
-    effect by appending the approved draft to the local outbox.
-    """
+    """Demo-only fake tool with observable three-second progress."""
     writer = get_stream_writer()
     tool_name = "send_support_reply"
-    total_steps = 3
 
     writer(
         {
@@ -184,19 +146,17 @@ async def send_reply_node(state: AgentState) -> dict[str, str]:
         }
     )
 
-    for step in range(1, total_steps + 1):
-        # asyncio.sleep keeps the event loop free, so progress is delivered to
-        # the browser while the fake tool is still running.
+    for step in range(1, 4):
+        # Non-blocking sleep lets the custom event stream flush progress while
+        # the operation is still running.
         await asyncio.sleep(1)
 
-        # 100% is reserved for a successfully completed side effect.
-        progress = step * 30
         writer(
             {
                 "type": "tool_progress",
                 "tool": tool_name,
-                "message": f"Processing step {step}/{total_steps}",
-                "progress": progress,
+                "message": f"Processing step {step}/3",
+                "progress": step * 30,
             }
         )
 
@@ -210,6 +170,8 @@ async def send_reply_node(state: AgentState) -> dict[str, str]:
     with OUTBOX_PATH.open("a", encoding="utf-8") as file:
         file.write(json.dumps(record, ensure_ascii=False) + "\n")
 
+    # 100% means the side effect itself succeeded, not merely that the timer
+    # finished.
     writer(
         {
             "type": "tool_completed",

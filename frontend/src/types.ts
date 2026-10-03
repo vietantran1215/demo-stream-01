@@ -38,9 +38,7 @@ export type StreamHandlers = {
   onSkill: (name: string, source: string) => void;
   onSkillSkipped: (reason: string) => void;
   onTool: (event: ToolEvent) => void;
-  onNode: (name: string) => void;
   onInterrupt: (approval: ApprovalRequest) => void;
-  onAction: (message: string) => void;
   onDone: (interrupted: boolean) => void;
   onError: (message: string) => void;
 };

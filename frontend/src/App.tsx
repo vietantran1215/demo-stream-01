@@ -201,9 +201,6 @@ export default function App() {
         upsertToolEvent(id, event);
         setStatus(`Tool: ${event.tool} · ${event.progress}%`);
       },
-      onNode: () => {
-        // Graph-node details stay out of the end-user UI.
-      },
       onInterrupt: (request) => {
         setApproval(request);
         setApprovalMessageId(id);
@@ -215,9 +212,6 @@ export default function App() {
         }));
 
         setStatus("Waiting for approval");
-      },
-      onAction: (message) => {
-        setStatus(message);
       },
       onDone: (interrupted) => {
         setBusy(false);

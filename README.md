@@ -47,7 +47,8 @@ interrupt()
 
 - Backend: Python 3.11+, FastAPI, LangGraph 1.2.x, LangChain OpenAI
 - Frontend: React 18, TypeScript, Vite
-- Streaming transport: Server-Sent Events over `fetch()`
+- Graph streaming: LangGraph Event Streaming v3 (`messages`, `custom`, interrupts)
+- Browser transport: Server-Sent Events over `fetch()`
 - HITL persistence for the demo: LangGraph `InMemorySaver`
 - Side effect: local `backend/data/outbox.jsonl`
 
@@ -251,7 +252,7 @@ The script checks the health endpoint and prints the exact manual scenarios to r
 python scripts/smoke.py --live
 ```
 
-to execute the three model-backed routes and automatically approve the HITL scenario.
+to execute the model-backed routes, verify skill events, pause/resume HITL, and assert the streamed tool progress sequence `0 → 30 → 60 → 90 → 100`.
 
 ## API protocol
 
@@ -281,23 +282,29 @@ Both endpoints stream SSE events.
 
 Event types:
 
-- `token`: one streamed model chunk
-- `node`: graph node completed / updated
+- `token`: user-facing LLM text delta from the native message projection
+- `route`: router decision metadata
+- `skill`: a skill was actually loaded
+- `skill_skipped`: the selected route does not need a skill
+- `tool`: long-running tool lifecycle/progress
 - `interrupt`: graph is paused and requires human input
-- `action`: side-effect status
 - `done`: request stream is complete
-- `error`: safe error payload
+- `error`: terminal application-level stream error
 
-The frontend does not implement business routing. It only renders this protocol. The backend graph owns routing, skills, HITL policy, and side effects.
+The backend uses LangGraph Event Streaming v3 as the runtime-facing API and adapts its typed projections to this intentionally small SSE contract. The frontend does not know LangGraph internals; it only renders these application events.
+
+> LangGraph 1.2.x currently marks Event Streaming v3 as experimental. This demo uses it because it is the current recommended direction for new applications, while keeping the browser protocol small enough to swap the backend streaming adapter later if the API changes.
 
 ## Core learning points
 
 1. **Router is not an agent.** It returns a structured route decision.
 2. **Skills are progressively loaded.** Only the chosen `SKILL.md` enters the model context.
-3. **Streaming is graph-aware.** LangGraph emits LLM message chunks plus node updates.
-4. **HITL really pauses execution.** The graph requires a checkpointer and the same `thread_id` to resume.
-5. **Side effects happen after approval.** Nothing irreversible is executed before `interrupt()`.
-6. **Frontend stays dumb.** It renders stream events; workflow policy remains server-side.
+3. **Use native message streaming for model output.** Nodes call `model.ainvoke()`; `run.messages` exposes text deltas without custom token plumbing.
+4. **Use custom events for domain progress.** Skills, routing and tool progress still use `get_stream_writer()` because they are application-specific events.
+5. **HITL really pauses execution.** The graph requires a checkpointer and the same `thread_id` to resume.
+6. **Direct `interrupt()` is intentional here.** `HumanInTheLoopMiddleware` is designed for `create_agent` tool calls; this demo has a deterministic `support_reply -> approval -> send` workflow, so the lower-level primitive is simpler and more precise.
+7. **Side effects happen after approval.** Nothing irreversible is executed before the interrupt.
+8. **Frontend stays dumb.** It renders stream events; workflow policy remains server-side.
 
 ## Production upgrade path
 

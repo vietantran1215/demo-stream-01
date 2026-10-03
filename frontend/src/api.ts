@@ -68,9 +68,6 @@ function dispatch(event: RawSseEvent, handlers: StreamHandlers): void {
       handlers.onTool(toolEvent);
       break;
     }
-    case "node":
-      handlers.onNode(String(data.name ?? "unknown"));
-      break;
     case "interrupt": {
       const value = (data.value ?? {}) as Record<string, unknown>;
       const approval: ApprovalRequest = {
@@ -81,9 +78,6 @@ function dispatch(event: RawSseEvent, handlers: StreamHandlers): void {
       handlers.onInterrupt(approval);
       break;
     }
-    case "action":
-      handlers.onAction(String(data.message ?? "Action completed"));
-      break;
     case "done":
       handlers.onDone(Boolean(data.interrupted));
       break;
