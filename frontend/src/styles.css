@@ -1,0 +1,299 @@
+:root {
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  color: #171717;
+  background: #f5f5f2;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+button,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled,
+textarea:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.page-shell {
+  min-height: 100vh;
+  padding: 32px 16px;
+}
+
+.app-card {
+  width: min(980px, 100%);
+  margin: 0 auto;
+  background: #ffffff;
+  border: 1px solid #deded8;
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.08);
+}
+
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 28px;
+  border-bottom: 1px solid #ecece7;
+}
+
+h1,
+h2,
+p {
+  margin-top: 0;
+}
+
+h1 {
+  margin-bottom: 10px;
+  font-size: clamp(1.7rem, 4vw, 2.4rem);
+  line-height: 1.1;
+}
+
+h2 {
+  margin-bottom: 8px;
+}
+
+.eyebrow {
+  margin-bottom: 8px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.subtitle,
+.approval-copy {
+  margin-bottom: 0;
+  color: #66665f;
+  line-height: 1.6;
+}
+
+.runtime-strip {
+  display: grid;
+  grid-template-columns: 120px 180px 1fr;
+  gap: 18px;
+  padding: 14px 28px;
+  background: #fafaf8;
+  border-bottom: 1px solid #ecece7;
+  font-size: 0.85rem;
+}
+
+.runtime-strip > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.runtime-label {
+  color: #85857d;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.node-list span:last-child {
+  overflow-wrap: anywhere;
+}
+
+.messages {
+  min-height: 360px;
+  max-height: 58vh;
+  overflow-y: auto;
+  padding: 28px;
+}
+
+.empty-state {
+  display: grid;
+  place-items: center;
+  min-height: 300px;
+  text-align: center;
+}
+
+.example-grid {
+  display: grid;
+  gap: 10px;
+  width: min(720px, 100%);
+}
+
+.example-card {
+  padding: 14px 16px;
+  text-align: left;
+  color: #33332f;
+  background: #fafaf8;
+  border: 1px solid #deded8;
+  border-radius: 12px;
+}
+
+.example-card:hover {
+  background: #f1f1ec;
+}
+
+.message {
+  max-width: 82%;
+  margin-bottom: 18px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.message.user {
+  margin-left: auto;
+  background: #171717;
+  color: white;
+}
+
+.message.assistant {
+  background: #f1f1ed;
+}
+
+.message-role {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.65;
+}
+
+.approval-card {
+  margin: 0 28px 24px;
+  padding: 20px;
+  border: 2px solid #171717;
+  border-radius: 14px;
+  background: #fffdf6;
+}
+
+.approval-card blockquote {
+  margin: 18px 0;
+  padding: 16px;
+  background: white;
+  border-left: 4px solid #171717;
+  white-space: pre-wrap;
+  line-height: 1.6;
+}
+
+.approval-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.composer {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  padding: 20px 28px 28px;
+  border-top: 1px solid #ecece7;
+}
+
+.composer textarea {
+  width: 100%;
+  resize: vertical;
+  padding: 13px 14px;
+  border: 1px solid #cacac3;
+  border-radius: 12px;
+  outline: none;
+  line-height: 1.5;
+}
+
+.composer textarea:focus {
+  border-color: #171717;
+}
+
+.primary-button,
+.secondary-button,
+.danger-button {
+  padding: 11px 16px;
+  border-radius: 10px;
+  font-weight: 700;
+}
+
+.primary-button {
+  color: white;
+  background: #171717;
+  border: 1px solid #171717;
+}
+
+.secondary-button {
+  color: #171717;
+  background: white;
+  border: 1px solid #cacac3;
+}
+
+.danger-button {
+  color: #8a1c1c;
+  background: white;
+  border: 1px solid #cda6a6;
+}
+
+.error-banner {
+  margin: 0 28px 18px;
+  padding: 12px 14px;
+  color: #8a1c1c;
+  background: #fff1f1;
+  border: 1px solid #e1b7b7;
+  border-radius: 10px;
+}
+
+.cursor {
+  animation: blink 0.8s steps(1) infinite;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+@media (max-width: 700px) {
+  .page-shell {
+    padding: 0;
+  }
+
+  .app-card {
+    min-height: 100vh;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .app-header {
+    flex-direction: column;
+  }
+
+  .runtime-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .message {
+    max-width: 94%;
+  }
+
+  .composer {
+    grid-template-columns: 1fr;
+  }
+
+  .approval-actions {
+    flex-direction: column;
+  }
+}
