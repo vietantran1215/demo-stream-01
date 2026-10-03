@@ -31,9 +31,9 @@ app.add_middleware(
     allow_headers=["Content-Type"],
 )
 
-# The router also calls an LLM, but its structured-output tokens are internal.
-# Only these user-facing generation nodes should become SSE token events.
-USER_FACING_MODEL_NODES = {"general", "summarize", "support_reply"}
+# Router output is internal. Only root model calls from these deterministic
+# nodes become assistant text. support_agent text is consumed from its subgraph.
+ROOT_USER_FACING_MODEL_NODES = {"general", "summarize"}
 
 
 def sse(event: str, data: object) -> str:
@@ -43,7 +43,7 @@ def sse(event: str, data: object) -> str:
 
 
 def map_custom_event(custom: object) -> tuple[str, dict] | None:
-    """Map domain-level LangGraph custom events to the browser SSE contract."""
+    """Map domain-level custom events to the browser SSE contract."""
     if not isinstance(custom, dict):
         return None
 
@@ -89,14 +89,47 @@ def map_custom_event(custom: object) -> tuple[str, dict] | None:
     return None
 
 
+def normalize_hitl_interrupt(pending_interrupt: object) -> dict:
+    """
+    Keep the browser contract framework-agnostic.
+
+    HumanInTheLoopMiddleware emits action_requests/review_configs. The React UI
+    only needs the single proposed action and the message that would be sent.
+    """
+    interrupt_id = getattr(pending_interrupt, "id", "")
+    value = getattr(pending_interrupt, "value", {})
+
+    if not isinstance(value, dict):
+        raise ValueError("Unexpected HITL interrupt payload.")
+
+    action_requests = value.get("action_requests")
+    if not isinstance(action_requests, list) or len(action_requests) != 1:
+        raise ValueError("This demo expects exactly one tool call under review.")
+
+    action = action_requests[0]
+    if not isinstance(action, dict):
+        raise ValueError("Unexpected HITL action request.")
+
+    arguments = action.get("arguments", {})
+    if not isinstance(arguments, dict):
+        arguments = {}
+
+    return {
+        "id": interrupt_id,
+        "value": {
+            "action": action.get("name", "unknown"),
+            "draft": arguments.get("message", ""),
+        },
+    }
+
+
 async def stream_graph(input_value: object, thread_id: str) -> AsyncIterator[str]:
     """
-    Adapt LangGraph Event Streaming v3 to the app's small SSE protocol.
+    Adapt LangGraph Event Streaming v3 to a small SSE protocol.
 
-    Native projections have clear responsibilities:
-    - run.messages: LLM text deltas
-    - run.custom: route, skill and tool-progress domain events
-    - run.interrupts: pending HITL requests after the run pauses
+    Root projections carry deterministic graph events. The support create_agent
+    runs as a subgraph, so its model text and tool custom events are consumed
+    from the nested subgraph handle.
     """
     config = {"configurable": {"thread_id": thread_id}}
 
@@ -109,34 +142,73 @@ async def stream_graph(input_value: object, thread_id: str) -> AsyncIterator[str
 
         queue: asyncio.Queue[tuple[str, object]] = asyncio.Queue()
 
-        async def consume_messages() -> None:
+        async def emit_custom(custom: object) -> None:
+            mapped = map_custom_event(custom)
+            if mapped is not None:
+                await queue.put(mapped)
+
+        async def consume_root_messages() -> None:
             try:
                 async for message in run.messages:
                     async for text in message.text:
-                        # Do not leak structured-output/router model tokens into
-                        # the end-user assistant message.
-                        if message.node in USER_FACING_MODEL_NODES and text:
+                        if message.node in ROOT_USER_FACING_MODEL_NODES and text:
                             await queue.put(("token", {"content": text}))
             except Exception as exc:
                 await queue.put(("__error__", exc))
             finally:
-                await queue.put(("__done__", "messages"))
+                await queue.put(("__done__", "root_messages"))
 
-        async def consume_custom() -> None:
+        async def consume_root_custom() -> None:
             try:
                 async for custom in run.custom:
-                    mapped = map_custom_event(custom)
-                    if mapped is not None:
-                        await queue.put(mapped)
+                    await emit_custom(custom)
             except Exception as exc:
                 await queue.put(("__error__", exc))
             finally:
-                await queue.put(("__done__", "custom"))
+                await queue.put(("__done__", "root_custom"))
+
+        async def consume_support_subgraph(subgraph: object) -> None:
+            async def consume_messages() -> None:
+                async for message in subgraph.messages:
+                    async for text in message.text:
+                        if text:
+                            await queue.put(("token", {"content": text}))
+
+            async def consume_custom() -> None:
+                async for custom in subgraph.custom:
+                    await emit_custom(custom)
+
+            try:
+                await asyncio.gather(
+                    consume_messages(),
+                    consume_custom(),
+                )
+            except Exception as exc:
+                await queue.put(("__error__", exc))
+
+        async def consume_subgraphs() -> None:
+            tasks: list[asyncio.Task] = []
+
+            try:
+                async for subgraph in run.subgraphs:
+                    tasks.append(
+                        asyncio.create_task(
+                            consume_support_subgraph(subgraph)
+                        )
+                    )
+
+                if tasks:
+                    await asyncio.gather(*tasks)
+            except Exception as exc:
+                await queue.put(("__error__", exc))
+            finally:
+                await queue.put(("__done__", "subgraphs"))
 
         async with run:
             consumers = [
-                asyncio.create_task(consume_messages()),
-                asyncio.create_task(consume_custom()),
+                asyncio.create_task(consume_root_messages()),
+                asyncio.create_task(consume_root_custom()),
+                asyncio.create_task(consume_subgraphs()),
             ]
 
             completed_consumers = 0
@@ -172,18 +244,12 @@ async def stream_graph(input_value: object, thread_id: str) -> AsyncIterator[str
         for pending_interrupt in interrupts:
             yield sse(
                 "interrupt",
-                {
-                    "id": pending_interrupt.id,
-                    "value": pending_interrupt.value,
-                },
+                normalize_hitl_interrupt(pending_interrupt),
             )
 
         yield sse("done", {"interrupted": interrupted})
 
     except Exception as exc:
-        # The HTTP stream may already be 200, so failures are application-level
-        # SSE events. Do not emit "done" after an error; the client treats error
-        # as terminal.
         yield sse("error", {"message": str(exc)})
 
 
@@ -210,8 +276,20 @@ async def chat(thread_id: str, body: ChatRequest) -> StreamingResponse:
 
 @app.post("/api/chat/{thread_id}/resume")
 async def resume(thread_id: str, body: ResumeRequest) -> StreamingResponse:
+    decision = (
+        {"type": "approve"}
+        if body.approved
+        else {
+            "type": "reject",
+            "message": (
+                "The user rejected this support reply. "
+                "Do not call send_support_reply again unless the user explicitly asks."
+            ),
+        }
+    )
+
     stream = stream_graph(
-        Command(resume={"approved": body.approved}),
+        Command(resume={"decisions": [decision]}),
         thread_id,
     )
     return StreamingResponse(

@@ -44,7 +44,7 @@ def dependencies_available(python: Path) -> bool:
         [
             str(python),
             "-c",
-            "import fastapi, uvicorn, langgraph, langchain_openai",
+            "import fastapi, uvicorn, langchain, langgraph, langchain_openai",
         ],
         cwd=ROOT,
         stdout=subprocess.DEVNULL,

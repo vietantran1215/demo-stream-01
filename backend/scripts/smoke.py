@@ -99,7 +99,7 @@ def main() -> None:
         )
         print("PASS summarize + skill")
 
-        print("\n=== support_reply + HITL + tool stream ===")
+        print("\n=== support agent + HITL middleware + approve ===")
         thread_id = str(uuid.uuid4())
         support = run_stream(
             client,
@@ -111,18 +111,28 @@ def main() -> None:
                 )
             },
         )
-        assert any(event == "token" for event, _ in support)
+
         assert any(
             event == "skill" and data.get("name") == "support-reply"
             for event, data in support
         )
-        assert any(event == "interrupt" for event, _ in support)
+
+        interrupts = [
+            data
+            for event, data in support
+            if event == "interrupt"
+        ]
+        assert len(interrupts) == 1
+        assert interrupts[0]["value"]["action"] == "send_support_reply"
+        assert interrupts[0]["value"]["draft"]
+        assert not any(event == "tool" for event, _ in support)
 
         resumed = run_stream(
             client,
             f"/api/chat/{thread_id}/resume",
             {"approved": True},
         )
+
         tool_progress = [
             data.get("progress")
             for event, data in resumed
@@ -133,7 +143,8 @@ def main() -> None:
             event == "tool" and data.get("phase") == "completed"
             for event, data in resumed
         )
-        print("PASS support_reply + HITL + streamed tool progress")
+
+        print("PASS support agent + built-in HITL + streamed tool progress")
 
 
 if __name__ == "__main__":

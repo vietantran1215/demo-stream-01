@@ -97,7 +97,7 @@ export default function App() {
       const skillMessage: Message = {
         id: eventId,
         role: "system",
-        content: `Skill loaded: ${skillName}`,
+        content: `Skill active: ${skillName}`,
         status: "normal",
       };
 
@@ -208,6 +208,9 @@ export default function App() {
 
         updateMessage(id, (message) => ({
           ...message,
+          // The middleware interrupt exposes the exact tool arguments under
+          // review. Show that payload because it is what approval will execute.
+          content: request.draft || message.content,
           status: "draft_pending",
         }));
 
@@ -424,8 +427,8 @@ export default function App() {
             </div>
 
             <p className="approval-review-note">
-              Review the streamed draft above. Approve executes the fake send;
-              Reject ends the graph without sending anything.
+              Review the proposed draft above. Approve executes the fake send;
+              Reject skips the tool and returns feedback to the agent.
             </p>
 
             <div className="approval-actions">

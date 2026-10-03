@@ -1,6 +1,6 @@
 ---
 name: support-reply
-description: Draft a concise customer-support reply that requires human approval before sending.
+description: Prepare a concise customer-support reply for human-reviewed sending.
 ---
 
 # Instructions
@@ -11,6 +11,6 @@ Rules:
 
 - Do not invent refund status, timelines, compensation, or policy.
 - Do not add facts the user did not provide.
-- Keep the response under 150 words.
+- Keep the customer-facing reply under 150 words.
 - Make the next action clear.
-- Return only the customer-facing draft; do not add analysis or internal notes.
+- The message passed to `send_support_reply` must contain only the customer-facing reply, with no analysis or internal notes.

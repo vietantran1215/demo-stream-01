@@ -1,6 +1,6 @@
 # demo-stream-01
 
-Minimal end-to-end demo of **LangChain + LangGraph Router + Skills + Streaming + Human-in-the-Loop (HITL) + React UI**.
+Minimal end-to-end demo of **LangGraph routing + LangChain create_agent + Skills + Event Streaming + Human-in-the-Loop (HITL) middleware + React UI**.
 
 The project intentionally avoids RAG, databases, MCP, authentication, queues, and cloud infrastructure so the runtime behavior stays visible.
 
@@ -11,41 +11,50 @@ User
   |
   v
 Router
-  |----------------------|
-  |                      |
-  v                      v
-general              summarize
-  |                      |
-  |                 load SKILL.md
-  |                      |
-  v                      v
-LLM streaming         LLM streaming
-  |                      |
-  v                      v
- END                    END
+  |---------------------------|
+  |                           |
+  v                           v
+general                   summarize
+  |                           |
+  |                      load SKILL.md
+  |                           |
+  v                           v
+LLM streaming            LLM streaming
+  |                           |
+  v                           v
+ END                         END
 
 Router
   |
   v
-support_reply
+support_skill
   |
   v
-load SKILL.md
+support_agent (create_agent)
   |
   v
-stream draft
+LLM proposes send_support_reply(...)
   |
   v
-interrupt()
+HumanInTheLoopMiddleware [PAUSE]
   |
-  +---- Reject ---> END
+  +---- Reject ----> feedback to agent
   |
-  +---- Approve --> fake_send --> data/outbox.jsonl --> END
+  +---- Approve ---> send_support_reply @tool
+                          |
+                          v
+                    0→30→60→90→100
+                          |
+                          v
+                 data/outbox.jsonl
+                          |
+                          v
+                    agent confirms
 ```
 
 ## Stack
 
-- Backend: Python 3.11+, FastAPI, LangGraph 1.2.x, LangChain OpenAI
+- Backend: Python 3.11+, FastAPI, LangChain 1.4.x, LangGraph 1.2.x, LangChain OpenAI
 - Frontend: React 18, TypeScript, Vite
 - Graph streaming: LangGraph Event Streaming v3 (`messages`, `custom`, interrupts)
 - Browser transport: Server-Sent Events over `fetch()`
@@ -65,7 +74,8 @@ interrupt()
 │   │   │   ├── model.py
 │   │   │   ├── nodes.py
 │   │   │   ├── router.py
-│   │   │   └── state.py
+│   │   │   ├── state.py
+│   │   │   └── support_agent.py
 │   │   ├── skills
 │   │   │   ├── loader.py
 │   │   │   ├── summarize/SKILL.md
@@ -109,6 +119,7 @@ Configure `backend/.env` before using model-backed routes:
 OPENAI_API_KEY=<your-key-here>
 OPENAI_BASE_URL=<your-base-url-here>
 OPENAI_MODEL=gpt-6-luna
+OPENAI_REASONING_EFFORT=none
 FRONTEND_ORIGIN=http://localhost:5173
 ```
 
@@ -211,15 +222,22 @@ Reply to the customer saying their refund has been approved and will arrive in 3
 Expected graph:
 
 ```text
-router -> support_reply -> approval [PAUSE]
-                                 |
-                              approve
-                                 |
-                                 v
-                                send -> END
+router
+  -> support_skill
+  -> support_agent
+  -> LLM proposes send_support_reply(...)
+  -> HumanInTheLoopMiddleware [PAUSE]
+                                  |
+                               approve
+                                  |
+                                  v
+                         send_support_reply @tool
+                                  |
+                                  v
+                             agent confirms
 ```
 
-The generated draft streams before the graph pauses. Click **Approve**. The fake send action appends one JSON line to:
+The middleware interrupt contains the exact proposed tool arguments, so the UI shows the message that approval would execute. Click **Approve**. The fake tool streams progress and appends one JSON line to:
 
 ```text
 backend/data/outbox.jsonl
@@ -232,10 +250,18 @@ Use the same prompt, then click **Reject**.
 Expected:
 
 ```text
-router -> support_reply -> approval [PAUSE] -> END
+HumanInTheLoopMiddleware [PAUSE]
+          |
+        reject
+          |
+          v
+tool call skipped
+          |
+          v
+rejection feedback returned to support_agent
 ```
 
-No outbox record is written.
+No outbox record is written. The agent is explicitly instructed not to retry the rejected send unless the user asks again.
 
 ## Smoke test
 
@@ -252,7 +278,7 @@ The script checks the health endpoint and prints the exact manual scenarios to r
 python scripts/smoke.py --live
 ```
 
-to execute the model-backed routes, verify skill events, pause/resume HITL, and assert the streamed tool progress sequence `0 → 30 → 60 → 90 → 100`.
+to execute the model-backed routes, verify skill activation, pause/resume the built-in HITL middleware, and assert the streamed tool progress sequence `0 → 30 → 60 → 90 → 100`.
 
 ## API protocol
 
@@ -291,20 +317,21 @@ Event types:
 - `done`: request stream is complete
 - `error`: terminal application-level stream error
 
-The backend uses LangGraph Event Streaming v3 as the runtime-facing API and adapts its typed projections to this intentionally small SSE contract. The frontend does not know LangGraph internals; it only renders these application events.
+The backend uses LangGraph Event Streaming v3 as the runtime-facing API and adapts its typed projections to this intentionally small SSE contract. Root projections carry the deterministic branches; the support agent runs as a nested subgraph, so its messages and custom tool-progress events are consumed from the subgraph projection. The frontend does not know LangGraph or middleware internals; it only renders these application events.
 
 > LangGraph 1.2.x currently marks Event Streaming v3 as experimental. This demo uses it because it is the current recommended direction for new applications, while keeping the browser protocol small enough to swap the backend streaming adapter later if the API changes.
 
 ## Core learning points
 
-1. **Router is not an agent.** It returns a structured route decision.
-2. **Skills are progressively loaded.** Only the chosen `SKILL.md` enters the model context.
-3. **Use native message streaming for model output.** Nodes call `model.ainvoke()`; `run.messages` exposes text deltas without custom token plumbing.
-4. **Use custom events for domain progress.** Skills, routing and tool progress still use `get_stream_writer()` because they are application-specific events.
-5. **HITL really pauses execution.** The graph requires a checkpointer and the same `thread_id` to resume.
-6. **Direct `interrupt()` is intentional here.** `HumanInTheLoopMiddleware` is designed for `create_agent` tool calls; this demo has a deterministic `support_reply -> approval -> send` workflow, so the lower-level primitive is simpler and more precise.
-7. **Side effects happen after approval.** Nothing irreversible is executed before the interrupt.
-8. **Frontend stays dumb.** It renders stream events; workflow policy remains server-side.
+1. **Router is not an agent.** The parent graph deterministically selects a branch.
+2. **A graph can contain an agentic subgraph.** Only the support branch uses `create_agent`; general and summarize remain deterministic.
+3. **Skills still scope behavior.** The summarize branch loads its skill directly; the support skill becomes the support agent's system instructions.
+4. **Native message projections stream model output.** Root model calls and nested support-agent model calls are consumed from their correct Event Streaming scopes.
+5. **Custom events carry domain progress.** Skill activation and long-running tool progress use `get_stream_writer()`.
+6. **The side effect is now a real tool.** `send_support_reply` is a LangChain `@tool`, not a graph node pretending to be one.
+7. **Built-in HITL governs the risky tool call.** `HumanInTheLoopMiddleware` pauses after the model proposes the tool but before execution.
+8. **Approve/reject are middleware decisions.** Approve executes the original tool call; reject skips it and returns feedback to the agent.
+9. **Frontend stays framework-agnostic.** FastAPI normalizes middleware interrupts and LangGraph streams into a small SSE protocol.
 
 ## Production upgrade path
 

@@ -8,9 +8,6 @@ RouteName = Literal["general", "summarize", "support_reply"]
 
 
 class AgentState(TypedDict, total=False):
-    # add_messages appends new messages instead of overwriting the conversation.
+    # The parent graph and create_agent subgraph communicate through messages.
     messages: Annotated[list[AnyMessage], add_messages]
     route: RouteName
-    draft: str
-    approved: bool
-    action_result: str

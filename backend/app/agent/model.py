@@ -3,10 +3,10 @@ import os
 from langchain_openai import ChatOpenAI
 
 
-# One shared model instance is enough for this demo.
-# Override OPENAI_MODEL in .env without touching application code.
+# GPT-6 Luna tool calling through Chat Completions requires reasoning disabled.
+# Keeping this explicit also avoids unsupported sampling-parameter combinations.
 model = ChatOpenAI(
-    base_url=os.getenv("OPENAI_BASE_URL"),
-    model=os.getenv("OPENAI_MODEL", "gpt-5.4-mini"),
-    temperature=1,
+    base_url=os.getenv("OPENAI_BASE_URL") or None,
+    model=os.getenv("OPENAI_MODEL", "gpt-6-luna"),
+    reasoning_effort=os.getenv("OPENAI_REASONING_EFFORT", "none"),
 )
