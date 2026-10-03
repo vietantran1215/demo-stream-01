@@ -72,9 +72,14 @@ function dispatch(event: RawSseEvent, handlers: StreamHandlers): void {
     case "done":
       handlers.onDone(Boolean(data.interrupted));
       break;
-    case "error":
-      handlers.onError(String(data.message ?? "Unknown server error"));
-      break;
+    case "error": {
+      const message = String(data.message ?? "Unknown server error");
+      handlers.onError(message);
+
+      // SSE errors arrive inside an HTTP 200 stream. Throw so callers do not
+      // mistake a failed graph/action for a successful resume.
+      throw new Error(message);
+    }
   }
 }
 
