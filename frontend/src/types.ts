@@ -1,7 +1,15 @@
+export type MessageStatus =
+  | "normal"
+  | "streaming"
+  | "draft_pending"
+  | "approved_sent"
+  | "rejected";
+
 export type Message = {
   id: string;
   role: "user" | "assistant" | "system";
   content: string;
+  status?: MessageStatus;
 };
 
 export type RouteName = "general" | "summarize" | "support_reply";

@@ -523,3 +523,79 @@ h2 {
     grid-template-columns: 1fr;
   }
 }
+
+
+.message.assistant:has(.message-role:first-child) {
+  position: relative;
+}
+
+.message.assistant .message-role {
+  transition: color 160ms ease;
+}
+
+.message.assistant:has(.message-role:first-child) {
+  border: 1px solid transparent;
+}
+
+.message.assistant:has(.message-role:first-child) {
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    opacity 160ms ease;
+}
+
+.message.assistant:has(.message-role:first-child) .message-role {
+  user-select: none;
+}
+
+.message.assistant:has(.message-role:first-child) .message-role {
+  overflow-wrap: anywhere;
+}
+
+.message.assistant:has(.message-role:first-child) {
+  overflow: hidden;
+}
+
+/* Draft lifecycle states are carried by the role label text. */
+.message.assistant:has(.message-role) {
+  --draft-border: transparent;
+}
+
+.message.assistant .message-role {
+  color: inherit;
+}
+
+.message.assistant .message-role:is(:not(:empty)) {
+  opacity: 0.72;
+}
+
+.approval-review-note {
+  margin: 16px 0 18px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #f7f7f2;
+  color: #5f5f58;
+  line-height: 1.5;
+}
+
+/* Use class hooks injected from message status below via attribute selectors. */
+.message[data-status="draft_pending"] {
+  border-color: #c8a94c;
+  background: #fffdf1;
+}
+
+.message[data-status="approved_sent"] {
+  border-color: #93b39a;
+  background: #f2f8f3;
+}
+
+.message[data-status="rejected"] {
+  border-color: #c9a3a3;
+  background: #faf2f2;
+  opacity: 0.72;
+}
+
+.message[data-status="rejected"] .markdown-body {
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}

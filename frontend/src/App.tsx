@@ -28,6 +28,7 @@ export default function App() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [nodes, setNodes] = useState<string[]>([]);
   const [approval, setApproval] = useState<ApprovalRequest | null>(null);
+  const [approvalMessageId, setApprovalMessageId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("Ready");
   const [error, setError] = useState<string | null>(null);
@@ -61,20 +62,62 @@ export default function App() {
   }
 
 
+  function updateMessage(
+    id: string,
+    updater: (message: Message) => Message,
+  ): void {
+    setMessages((current) =>
+      current.map((message) =>
+        message.id === id ? updater(message) : message,
+      ),
+    );
+  }
+
+
   function appendAssistantToken(id: string, token: string): void {
     setMessages((current) => {
       const index = current.findIndex((message) => message.id === id);
 
       if (index === -1) {
-        return [...current, { id, role: "assistant", content: token }];
+        return [
+          ...current,
+          {
+            id,
+            role: "assistant",
+            content: token,
+            status: "streaming",
+          },
+        ];
       }
 
       return current.map((message) =>
         message.id === id
-          ? { ...message, content: message.content + token }
+          ? {
+              ...message,
+              content: message.content + token,
+              status: "streaming",
+            }
           : message,
       );
     });
+  }
+
+
+  function messageLabel(message: Message): string {
+    if (message.role !== "assistant") {
+      return message.role;
+    }
+
+    switch (message.status) {
+      case "draft_pending":
+        return "DRAFT · PENDING APPROVAL";
+      case "approved_sent":
+        return "ASSISTANT · APPROVED & SENT";
+      case "rejected":
+        return "DRAFT · REJECTED · NOT SENT";
+      default:
+        return "ASSISTANT";
+    }
   }
 
 
@@ -121,7 +164,14 @@ export default function App() {
       },
       onInterrupt: (request) => {
         setApproval(request);
+        setApprovalMessageId(id);
         setStreamingMessageId(null);
+
+        updateMessage(id, (message) => ({
+          ...message,
+          status: "draft_pending",
+        }));
+
         setStatus("Waiting for human approval");
         addTrace("HITL: approval required");
       },
@@ -134,6 +184,13 @@ export default function App() {
         setStreamingMessageId(null);
 
         if (!interrupted) {
+          // Normal general/summarize responses become final assistant messages.
+          updateMessage(id, (message) =>
+            message.status === "streaming"
+              ? { ...message, status: "normal" }
+              : message,
+          );
+
           setStatus("Completed");
           addTrace("Completed");
         }
@@ -188,6 +245,7 @@ export default function App() {
         id: responseMessageId,
         role: "assistant",
         content: "",
+        status: "streaming",
       },
     ]);
     setStreamingMessageId(responseMessageId);
@@ -206,9 +264,11 @@ export default function App() {
 
 
   async function decide(approved: boolean): Promise<void> {
-    if (!approval || busy) {
+    if (!approval || !approvalMessageId || busy) {
       return;
     }
+
+    const draftMessageId = approvalMessageId;
 
     setBusy(true);
     setError(null);
@@ -223,6 +283,17 @@ export default function App() {
         approved,
         makeHandlers(`resume-${crypto.randomUUID()}`),
       );
+
+      // Only mutate the visible draft after the backend resume completed
+      // successfully. Approve means the send node ran; reject means the graph
+      // terminated without executing the side effect.
+      updateMessage(draftMessageId, (message) => ({
+        ...message,
+        status: approved ? "approved_sent" : "rejected",
+      }));
+
+      setApprovalMessageId(null);
+      setStatus(approved ? "Approved and sent" : "Rejected — not sent");
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
       setError(message);
@@ -240,6 +311,7 @@ export default function App() {
     setMessages([]);
     setNodes([]);
     setApproval(null);
+    setApprovalMessageId(null);
     setBusy(false);
     setError(null);
     setStreamingMessageId(null);
@@ -379,8 +451,12 @@ export default function App() {
             </div>
           ) : (
             messages.map((message) => (
-              <article key={message.id} className={`message ${message.role}`}>
-                <span className="message-role">{message.role}</span>
+              <article
+                key={message.id}
+                className={`message ${message.role}`}
+                data-status={message.status ?? "normal"}
+              >
+                <span className="message-role">{messageLabel(message)}</span>
 
                 {message.content ? (
                   <MarkdownContent content={message.content} />
@@ -406,9 +482,10 @@ export default function App() {
               </p>
             </div>
 
-            <div className="approval-draft">
-              <MarkdownContent content={approval.draft} />
-            </div>
+            <p className="approval-review-note">
+              Review the streamed draft above. Approve executes the fake send;
+              Reject ends the graph without sending anything.
+            </p>
 
             <div className="approval-actions">
               <button
