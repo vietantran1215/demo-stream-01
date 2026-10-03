@@ -42,21 +42,7 @@ function dispatch(event: RawSseEvent, handlers: StreamHandlers): void {
       handlers.onToken(String(data.content ?? ""));
       break;
     case "route":
-      handlers.onRoute(
-        String(data.route ?? "general") as RouteName,
-        data.expected_skill == null ? null : String(data.expected_skill),
-      );
-      break;
-    case "skill":
-      handlers.onSkill(
-        String(data.name ?? "unknown"),
-        String(data.source ?? "unknown"),
-      );
-      break;
-    case "skill_skipped":
-      handlers.onSkillSkipped(
-        String(data.reason ?? "No specialized skill required."),
-      );
+      handlers.onRoute(String(data.route ?? "general") as RouteName);
       break;
     case "tool": {
       const toolEvent: ToolEvent = {

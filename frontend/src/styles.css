@@ -458,28 +458,6 @@ h2 {
   white-space: nowrap;
 }
 
-.message.system {
-  width: fit-content;
-  max-width: 90%;
-  margin: 4px auto 14px;
-  padding: 7px 11px;
-  border: 1px solid #deded8;
-  border-radius: 999px;
-  color: #66665f;
-  background: #fafaf8;
-  font-size: 0.78rem;
-  line-height: 1.2;
-}
-
-.message.system .message-role {
-  display: inline;
-  margin: 0 7px 0 0;
-  font-size: 0.62rem;
-}
-
-.skill-event-text {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-}
 
 @media (max-width: 700px) {
   .header-actions {

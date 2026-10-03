@@ -93,11 +93,7 @@ def main() -> None:
             },
         )
         assert any(event == "token" for event, _ in summarized)
-        assert any(
-            event == "skill" and data.get("name") == "summarize"
-            for event, data in summarized
-        )
-        print("PASS summarize + skill")
+        print("PASS summarize")
 
         print("\n=== support agent + HITL middleware + approve ===")
         thread_id = str(uuid.uuid4())
@@ -110,11 +106,6 @@ def main() -> None:
                     "arrive in 3-5 business days."
                 )
             },
-        )
-
-        assert any(
-            event == "skill" and data.get("name") == "support-reply"
-            for event, data in support
         )
 
         interrupts = [

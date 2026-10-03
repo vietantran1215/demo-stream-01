@@ -9,7 +9,7 @@ export type ToolState = "started" | "progress" | "completed";
 
 export type Message = {
   id: string;
-  role: "user" | "assistant" | "system" | "tool";
+  role: "user" | "assistant" | "tool";
   content: string;
   status?: MessageStatus;
   toolName?: string;
@@ -34,9 +34,7 @@ export type ToolEvent = {
 
 export type StreamHandlers = {
   onToken: (content: string) => void;
-  onRoute: (route: RouteName, expectedSkill: string | null) => void;
-  onSkill: (name: string, source: string) => void;
-  onSkillSkipped: (reason: string) => void;
+  onRoute: (route: RouteName) => void;
   onTool: (event: ToolEvent) => void;
   onInterrupt: (approval: ApprovalRequest) => void;
   onDone: (interrupted: boolean) => void;

@@ -55,24 +55,6 @@ def map_custom_event(custom: object) -> tuple[str, dict] | None:
             "route",
             {
                 "route": custom.get("route"),
-                "expected_skill": custom.get("expected_skill"),
-            },
-        )
-
-    if custom_type == "skill_loaded":
-        return (
-            "skill",
-            {
-                "name": custom.get("name"),
-                "source": custom.get("source"),
-            },
-        )
-
-    if custom_type == "skill_skipped":
-        return (
-            "skill_skipped",
-            {
-                "reason": custom.get("reason"),
             },
         )
 

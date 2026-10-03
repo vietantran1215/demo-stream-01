@@ -85,35 +85,6 @@ export default function App() {
   }
 
 
-  function insertSkillEventBefore(responseId: string, skillName: string): void {
-    setMessages((current) => {
-      const eventId = `skill-${responseId}-${skillName}`;
-
-      if (current.some((message) => message.id === eventId)) {
-        return current;
-      }
-
-      const responseIndex = current.findIndex((message) => message.id === responseId);
-      const skillMessage: Message = {
-        id: eventId,
-        role: "system",
-        content: `Skill active: ${skillName}`,
-        status: "normal",
-      };
-
-      if (responseIndex === -1) {
-        return [...current, skillMessage];
-      }
-
-      return [
-        ...current.slice(0, responseIndex),
-        skillMessage,
-        ...current.slice(responseIndex),
-      ];
-    });
-  }
-
-
   function upsertToolEvent(requestId: string, event: ToolEvent): void {
     const toolMessageId = `tool-${requestId}-${event.tool}`;
 
@@ -151,10 +122,6 @@ export default function App() {
 
 
   function messageLabel(message: Message): string {
-    if (message.role === "system") {
-      return "RUNTIME";
-    }
-
     if (message.role === "tool") {
       return message.toolState === "completed"
         ? "TOOL · COMPLETED"
@@ -187,15 +154,6 @@ export default function App() {
       },
       onRoute: () => {
         setStatus("Route selected");
-      },
-      onSkill: (name) => {
-        // Show only skills that were actually loaded by the backend.
-        // Put the event before the response bubble so the causal order is clear.
-        insertSkillEventBefore(id, name);
-        setStatus(`Skill: ${name}`);
-      },
-      onSkillSkipped: () => {
-        // General requests intentionally have no skill event in the conversation.
       },
       onTool: (event) => {
         upsertToolEvent(id, event);
@@ -341,9 +299,9 @@ export default function App() {
         <header className="app-header">
           <div>
             <p className="eyebrow">LANGGRAPH DEMO</p>
-            <h1>Streaming + Router + Skills + HITL</h1>
+            <h1>Streaming + Router + HITL</h1>
             <p className="subtitle">
-              Skills appear inline only when the backend actually loads them.
+              Stream model output and tool progress, then pause risky actions for human approval.
             </p>
           </div>
 
@@ -386,9 +344,7 @@ export default function App() {
               >
                 <span className="message-role">{messageLabel(message)}</span>
 
-                {message.role === "system" ? (
-                  <span className="skill-event-text">{message.content}</span>
-                ) : message.role === "tool" ? (
+                {message.role === "tool" ? (
                   <div className="tool-event">
                     <div className="tool-event-row">
                       <code>{message.toolName ?? "tool"}</code>

@@ -8,27 +8,25 @@ from langchain.agents.middleware import HumanInTheLoopMiddleware
 from langchain.tools import tool
 from langgraph.config import get_stream_writer
 
-from app.skills.loader import load_skill
-
 from .model import model
 
 
 OUTBOX_PATH = Path(__file__).resolve().parents[2] / "data" / "outbox.jsonl"
 
-SUPPORT_SKILL = load_skill("support-reply")
+SUPPORT_AGENT_PROMPT = """
+You are a customer-support reply agent.
 
-SUPPORT_AGENT_PROMPT = f"""{SUPPORT_SKILL}
-
-Agent behavior:
-
-- Every request routed to you is a customer-support reply task.
-- Draft exactly one customer-facing reply from the user's supplied facts.
-- Call send_support_reply exactly once with that draft.
+Rules:
+- Use only facts supplied by the user.
+- Do not invent refund status, timelines, compensation, or policy.
+- Draft exactly one professional customer-facing reply under 150 words.
+- Make the next action clear.
+- Call send_support_reply exactly once with only that customer-facing draft.
 - The tool call is only a proposed side effect until human approval is granted.
 - Never claim the reply was sent before the tool succeeds.
 - If the human rejects the tool call, acknowledge that it was not sent and do not retry.
 - After a successful tool result, confirm briefly that the reply was sent.
-"""
+""".strip()
 
 
 @tool
