@@ -153,7 +153,6 @@ h2 {
   padding: 14px 16px;
   border-radius: 14px;
   line-height: 1.6;
-  white-space: pre-wrap;
 }
 
 .message.user {
@@ -184,12 +183,11 @@ h2 {
   background: #fffdf6;
 }
 
-.approval-card blockquote {
+.approval-draft {
   margin: 18px 0;
   padding: 16px;
   background: white;
   border-left: 4px solid #171717;
-  white-space: pre-wrap;
   line-height: 1.6;
 }
 
@@ -296,4 +294,100 @@ h2 {
   .approval-actions {
     flex-direction: column;
   }
+}
+
+
+/* Markdown is rendered for prompts, streamed answers, and HITL drafts. */
+.markdown-body {
+  overflow-wrap: anywhere;
+}
+
+.markdown-body > :first-child {
+  margin-top: 0;
+}
+
+.markdown-body > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown-body p,
+.markdown-body ul,
+.markdown-body ol,
+.markdown-body blockquote,
+.markdown-body pre,
+.markdown-body table {
+  margin-top: 0;
+  margin-bottom: 12px;
+}
+
+.markdown-body ul,
+.markdown-body ol {
+  padding-left: 22px;
+}
+
+.markdown-body li + li {
+  margin-top: 4px;
+}
+
+.markdown-body blockquote {
+  margin-left: 0;
+  padding-left: 12px;
+  border-left: 3px solid currentColor;
+  opacity: 0.8;
+}
+
+.markdown-body code {
+  padding: 0.12em 0.35em;
+  border-radius: 5px;
+  background: rgba(127, 127, 127, 0.14);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.9em;
+}
+
+.markdown-body pre {
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 14px;
+  border-radius: 10px;
+  background: #202020;
+  color: #f5f5f2;
+}
+
+.markdown-body pre code {
+  padding: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.markdown-body table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+
+.markdown-body th,
+.markdown-body td {
+  padding: 7px 10px;
+  border: 1px solid #cacac3;
+  text-align: left;
+}
+
+.markdown-body a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.example-card .markdown-body p {
+  margin-bottom: 0;
+}
+
+.message.user .markdown-body pre {
+  background: #2b2b2b;
+}
+
+.cursor {
+  display: inline-block;
+  margin-left: 2px;
 }

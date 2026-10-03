@@ -37,53 +37,36 @@ def sse(event: str, data: object) -> str:
     return f"event: {event}\ndata: {payload}\n\n"
 
 
-def message_chunk_text(message: object) -> str:
-    """Read only textual content from a streamed LangChain message chunk."""
-    text = getattr(message, "text", None)
-    if isinstance(text, str):
-        return text
-
-    content = getattr(message, "content", "")
-    if isinstance(content, str):
-        return content
-
-    if isinstance(content, list):
-        parts: list[str] = []
-        for block in content:
-            if isinstance(block, str):
-                parts.append(block)
-            elif isinstance(block, dict) and isinstance(block.get("text"), str):
-                parts.append(block["text"])
-        return "".join(parts)
-
-    return ""
-
-
 async def stream_graph(input_value: object, thread_id: str) -> AsyncIterator[str]:
-    """Translate LangGraph stream parts into a tiny frontend-facing SSE protocol."""
+    """
+    Translate LangGraph custom token events + node updates into a tiny SSE
+    protocol consumed by the React frontend.
+    """
     config = {"configurable": {"thread_id": thread_id}}
 
     try:
         async for part in graph.astream(
             input_value,
             config=config,
-            stream_mode=["messages", "updates"],
+            stream_mode=["custom", "updates"],
             version="v2",
         ):
-            if part["type"] == "messages":
-                message, metadata = part["data"]
+            if part["type"] == "custom":
+                custom = part["data"]
 
-                # Router model tokens are implementation detail, not user output.
-                if metadata.get("langgraph_node") == "router":
-                    continue
-
-                chunk = message_chunk_text(message)
-                if chunk:
-                    yield sse("token", {"content": chunk})
+                # Generation nodes explicitly emit these from model.astream().
+                if (
+                    isinstance(custom, dict)
+                    and custom.get("type") == "token"
+                    and isinstance(custom.get("content"), str)
+                ):
+                    yield sse("token", {"content": custom["content"]})
 
             elif part["type"] == "updates":
                 for node_name, update in part["data"].items():
-                    yield sse("node", {"name": node_name})
+                    # __interrupt__ is runtime metadata, not a business node.
+                    if not node_name.startswith("__"):
+                        yield sse("node", {"name": node_name})
 
                     if node_name == "send" and isinstance(update, dict):
                         result = update.get("action_result")
@@ -109,7 +92,7 @@ async def stream_graph(input_value: object, thread_id: str) -> AsyncIterator[str
         yield sse("done", {"interrupted": interrupted})
 
     except Exception as exc:
-        # Keep the demo debuggable without leaking stack traces through the API.
+        # Keep the demo debuggable without leaking a full stack trace via HTTP.
         yield sse("error", {"message": str(exc)})
         yield sse("done", {"interrupted": False})
 

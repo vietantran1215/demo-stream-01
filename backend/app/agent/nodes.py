@@ -2,8 +2,9 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from langchain_core.messages import SystemMessage
+from langchain_core.messages import AIMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
+from langgraph.config import get_stream_writer
 from langgraph.types import interrupt
 
 from app.skills.loader import load_skill
@@ -16,7 +17,7 @@ OUTBOX_PATH = Path(__file__).resolve().parents[2] / "data" / "outbox.jsonl"
 
 
 def message_text(message: object) -> str:
-    """Normalize LangChain text content into a plain string for state/storage."""
+    """Normalize LangChain text content into a plain string."""
     text = getattr(message, "text", None)
     if isinstance(text, str):
         return text
@@ -37,14 +38,47 @@ def message_text(message: object) -> str:
     return str(content)
 
 
+async def stream_model(messages: list, config: RunnableConfig) -> AIMessage:
+    """
+    Stream the provider response explicitly and mirror every text chunk into
+    LangGraph's custom stream channel.
+
+    Why not rely only on stream_mode="messages"?
+    Custom OpenAI-compatible gateways can behave differently around callback
+    propagation. Explicit model.astream() makes the streaming boundary visible
+    and deterministic for this teaching demo.
+    """
+    writer = get_stream_writer()
+    parts: list[str] = []
+
+    async for chunk in model.astream(messages, config):
+        text = message_text(chunk)
+        if not text:
+            continue
+
+        parts.append(text)
+
+        # The FastAPI layer subscribes to stream_mode="custom" and converts
+        # this payload into an SSE "token" event for the browser.
+        writer(
+            {
+                "type": "token",
+                "content": text,
+            }
+        )
+
+    return AIMessage(content="".join(parts))
+
+
 async def general_node(state: AgentState, config: RunnableConfig) -> dict:
     """Handle requests that do not need a specialized skill."""
-    response = await model.ainvoke(
+    response = await stream_model(
         [
             SystemMessage(
                 content=(
                     "You are a concise technical assistant. Answer the user's latest request "
-                    "directly. Do not claim to have executed external actions."
+                    "directly. Use Markdown when structure improves readability. "
+                    "Do not claim to have executed external actions."
                 )
             ),
             *state["messages"],
@@ -57,7 +91,7 @@ async def general_node(state: AgentState, config: RunnableConfig) -> dict:
 async def summarize_node(state: AgentState, config: RunnableConfig) -> dict:
     """Load the summarize skill only after the router selects this node."""
     skill = load_skill("summarize")
-    response = await model.ainvoke(
+    response = await stream_model(
         [SystemMessage(content=skill), *state["messages"]],
         config,
     )
@@ -67,7 +101,7 @@ async def summarize_node(state: AgentState, config: RunnableConfig) -> dict:
 async def support_reply_node(state: AgentState, config: RunnableConfig) -> dict:
     """Generate a customer-facing draft but do not execute the side effect."""
     skill = load_skill("support-reply")
-    response = await model.ainvoke(
+    response = await stream_model(
         [SystemMessage(content=skill), *state["messages"]],
         config,
     )
