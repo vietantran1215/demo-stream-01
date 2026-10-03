@@ -76,7 +76,13 @@ def main() -> None:
             {"message": "What is LangGraph in one paragraph?"},
         )
         assert any(event == "route" and data.get("route") == "general" for event, data in general)
-        assert any(event == "token" for event, _ in general)
+        general_tokens = [
+            data
+            for event, data in general
+            if event == "token"
+        ]
+        assert general_tokens
+        assert all(data.get("source") == "model_astream" for data in general_tokens)
         assert not any(event == "interrupt" for event, _ in general)
         print("PASS general streaming")
 
@@ -96,6 +102,16 @@ def main() -> None:
         assert any(
             event == "route" and data.get("route") == "support_reply"
             for event, data in support
+        )
+
+        support_tokens = [
+            data
+            for event, data in support
+            if event == "token"
+        ]
+        assert all(
+            data.get("source") == "subgraph_messages"
+            for data in support_tokens
         )
 
         interrupts = [

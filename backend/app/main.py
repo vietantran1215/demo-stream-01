@@ -32,11 +32,6 @@ app.add_middleware(
     allow_headers=["Content-Type"],
 )
 
-# Router output is internal. Only root model calls from these deterministic
-# nodes become assistant text. support_agent text is consumed from its subgraph.
-ROOT_USER_FACING_MODEL_NODES = {"general"}
-
-
 def sse(event: str, data: object) -> str:
     """Encode one JSON payload as a Server-Sent Event frame."""
     payload = json.dumps(jsonable_encoder(data), ensure_ascii=False)
@@ -55,6 +50,15 @@ def map_custom_event(custom: object) -> tuple[str, dict] | None:
             "route",
             {
                 "route": custom.get("route"),
+            },
+        )
+
+    if custom_type == "model_token":
+        return (
+            "token",
+            {
+                "content": custom.get("content", ""),
+                "source": custom.get("source", "model_astream"),
             },
         )
 
@@ -110,9 +114,9 @@ async def stream_graph(input_value: object, thread_id: str) -> AsyncIterator[str
     """
     Adapt LangGraph Event Streaming v3 to a small SSE protocol.
 
-    Root projections carry deterministic graph events. The support create_agent
-    runs as a subgraph, so its model text and tool custom events are consumed
-    from the nested subgraph handle.
+    The general path explicitly streams model chunks through model.astream()
+    and get_stream_writer(). The support create_agent runs as a subgraph, so
+    its model text and tool custom events come from the nested subgraph handle.
     """
     config = {"configurable": {"thread_id": thread_id}}
 
@@ -134,17 +138,6 @@ async def stream_graph(input_value: object, thread_id: str) -> AsyncIterator[str
             if mapped is not None:
                 await queue.put(mapped)
 
-        async def consume_root_messages() -> None:
-            try:
-                async for message in run.messages:
-                    async for text in message.text:
-                        if message.node in ROOT_USER_FACING_MODEL_NODES and text:
-                            await queue.put(("token", {"content": text}))
-            except Exception as exc:
-                await queue.put(("__error__", exc))
-            finally:
-                await queue.put(("__done__", "root_messages"))
-
         async def consume_root_custom() -> None:
             try:
                 async for custom in run.custom:
@@ -159,7 +152,15 @@ async def stream_graph(input_value: object, thread_id: str) -> AsyncIterator[str
                 async for message in subgraph.messages:
                     async for text in message.text:
                         if text:
-                            await queue.put(("token", {"content": text}))
+                            await queue.put(
+                                (
+                                    "token",
+                                    {
+                                        "content": text,
+                                        "source": "subgraph_messages",
+                                    },
+                                )
+                            )
 
             async def consume_custom() -> None:
                 async for custom in subgraph.custom:
@@ -193,7 +194,6 @@ async def stream_graph(input_value: object, thread_id: str) -> AsyncIterator[str
 
         async with run:
             consumers = [
-                asyncio.create_task(consume_root_messages()),
                 asyncio.create_task(consume_root_custom()),
                 asyncio.create_task(consume_subgraphs()),
             ]
